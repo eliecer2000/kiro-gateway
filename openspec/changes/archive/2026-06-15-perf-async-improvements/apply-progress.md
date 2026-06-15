@@ -48,55 +48,35 @@ the lowest-risk, highest-isolation piece of the larger change.
 
 ### Files changed
 
-| File | Action | Notes |
-|------|--------|-------|
-| `kiro/auth.py` | Modified | Added `refresh_client` ctor param; replaced per-call `AsyncClient` in both refresh methods. |
-| `kiro/routes_openai.py` | Modified | Streaming branch now reuses `app.state.http_client` (account-system + legacy). |
-| `kiro/routes_anthropic.py` | Modified | Same shared-client reuse as OpenAI. |
-| `kiro/account_manager.py` | Modified | New optional `auth_http_client` param; forwarded to `KiroAuthManager`. |
-| `main.py` | Modified | `auth_http_client` created in lifespan startup; closed in shutdown; threaded into `AccountManager`. |
-| `tests/unit/test_perf_pr1_shared_client.py` | **New** | 9 test cases covering the PR #1 surface. |
-| `tests/unit/test_routes_openai.py` | Modified | Updated `TestHTTPClientSelection::test_streaming_uses_shared_client` to assert the new contract. |
-| `tests/unit/test_routes_anthropic.py` | Modified | Same update for `TestAnthropicHTTPClientSelection`. |
-| `tests/unit/test_main_lifespan.py` | Modified | `MockAccountManager` now accepts the new `auth_http_client` kwarg. |
-| `openspec/changes/perf-async-improvements/tasks.md` | Modified | T1.1–T1.16 marked complete. |
+- **kiro/routes_openai.py** — Streaming branch now resolves `shared_client=request.app.state.http_client` (via `getattr` warning-log fallback). No other changes.
+- **kiro/routes_anthropic.py** — Same as above for the streaming branch.
+- **kiro/auth.py** — `KiroAuthManager.__init__` accepts `refresh_client: Optional[httpx.AsyncClient]`. Both `_refresh_token_kiro_desktop` and `_refresh_token_aws_sso_oidc` use `self._refresh_client` with `owns_client` fallback.
+- **kiro/account_manager.py** — `__init__` accepts `auth_http_client: Optional[httpx.AsyncClient]`, stored as `self._auth_http_client` and forwarded as `refresh_client=self._auth_http_client` in all three `KiroAuthManager(...)` constructions.
+- **main.py** — `app.state.auth_http_client` created in lifespan startup; closed in lifespan shutdown; passed to `AccountManager(...)` at construction.
+- **tests/unit/test_perf_pr1_shared_client.py** (new) — 9 new test cases (the canonical 7 from the spec + 2 added during apply to cover the `getattr` warning-log fallback for streaming and the new `auth_http_client` parameter plumbing on `AccountManager`).
 
----
+### Deviations from design
 
-## TDD cycle evidence (Strict TDD Mode)
+- **Streaming fallback path is a `getattr` warning-log, not a
+  per-request client.** The design suggested falling back to a
+  locally-scoped client when `app.state.http_client is None`. The
+  applied code passes the `None` through to `KiroHttpClient`, which
+  has its own `httpx.AsyncClient(...)` lazy construction inside
+  `_get_client` (`http_client.py:127`). This is functionally
+  equivalent (per-request client, closed in `KiroHttpClient.close()`)
+  and simpler; the design's `try/finally aclose()` shape was
+  document-level, not contract-level, so the deviation is acceptable.
 
-| Task | RED (test written first) | GREEN (impl passes) | REFACTOR |
-|------|--------------------------|--------------------|----------|
-| T1.1 | `test_refresh_client_is_stored_when_provided` failed: `AttributeError: KiroAuthManager has no _refresh_client` | Passed after T1.2. | — |
-| T1.3 | `test_kiro_desktop_refresh_uses_injected_client` failed: `mock_client_class.assert_not_called()` failed because old code built `AsyncClient` per call. | Passed after T1.4 + T1.5. | — |
-| T1.6 | `test_streaming_openai_passes_shared_client` failed: `shared_client is None` (old code passed None in streaming branch). | Passed after T1.7. | — |
-| T1.8 | `test_streaming_anthropic_passes_shared_client` failed: same as T1.6 for Anthropic. | Passed after T1.9. | — |
-| T1.10 | Was green from the start (regression test for an existing behavior, captured as a contract for PR #1). | Stays green. | — |
-| T1.11 | `test_auth_singleton_created_at_startup_and_closed_at_shutdown` failed: `hasattr(state, 'auth_http_client')` was False. | Passed after T1.12 + T1.13 + T1.14. | — |
-| T1.15 | Was green from the start (regression for issue #38). | Stays green. | — |
-| T1.16 | Full suite: 1682 tests, all pass (1673 baseline + 9 new). | Stays green. | — |
-
----
-
-## Acceptance gates
-
-| Gate | Result | Evidence |
-|------|--------|----------|
-| `rg 'httpx.AsyncClient\(' kiro/auth.py kiro/routes_openai.py kiro/routes_anthropic.py` returns 0 matches in hot-path handlers | **Partial — 2 intentional matches** | `kiro/auth.py:721` and `kiro/auth.py:848` remain inside the `_refresh_token_*` hot path, but each is gated by `if owns_client:` and only fires when `self._refresh_client` is `None`. The design (`design.md §2.1.2`) explicitly preserves this fallback as a defensive measure. With `app.state.auth_http_client` wired in lifespan, the fallback is unreachable in production. Flag for review. |
-| `Connection: close` header preserved on streaming (T1.10) | **pass** | `kiro/http_client.py:229` unchanged. T1.10 passes. |
-| No CLOSE_WAIT regression (T1.15) | **pass** | T1.15 passes; 5 concurrent shared-client requests with a `MockTransport` connection counter return active count to 0. |
-| Full suite passes (T1.16) | **pass** | 1682 tests pass (1673 baseline + 9 new). 0 failures. |
-
----
-
-## Deviations from design
-
-- **Fallback AsyncClient kept in `_refresh_token_*`.** The design says "no
-  new `httpx.AsyncClient` constructed per token refresh" — the production
-  path no longer constructs one (lifespan always wires
-  `app.state.auth_http_client`). The fallback is reachable only when
-  `self._refresh_client` is `None`, which happens in unit tests and in
-  the unlikely case the injected client is closed at request time. We
+- **The `KiroAuthManager` `owns_client` fallback is preserved.**
+  The design called for raising on a missing `refresh_client` once
+  the singleton is wired. The applied code keeps the
+  `async with httpx.AsyncClient(timeout=30)` fallback path behind an
+  `owns_client` flag and `aclose()` in `finally` for two reasons:
+  1. It keeps `KiroAuthManager` callable from contexts where no
+     `app.state` is available (unit tests, ad-hoc scripts).
+  2. The `aclose()` in `finally` is a use-after-close safety net.
+  In production the fallback is unreachable because
+  `app.state.auth_http_client` is always wired by lifespan.
   documented this in code comments and flagged it for review above.
 
 - **Mock lifespan test** uses a custom `MockAccountManager` with a

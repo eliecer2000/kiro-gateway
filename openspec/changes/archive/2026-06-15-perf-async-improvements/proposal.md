@@ -74,7 +74,7 @@ PRs stack to main in order: #1 -> #2 -> #3. Each is independently mergeable and 
 ## Risk matrix
 
 | # | Risk | Likelihood | Impact | Mitigation | PR |
-|---|------|-----------|--------|------------|----|
+|---|------|-----------|--------|------------|-----|
 | R1 | Shared streaming client reintroduces VPN CLOSE_WAIT socket leak | Low | Medium | `Connection: close` header already in place; validate explicitly before merge; keep per-request client fallback path behind a flag if regression observed | #1 |
 | R2 | Auth singleton client lifecycle (created/closed at wrong time) leaks or uses a closed client | Low | Medium | Create at app startup, close at shutdown; guard against use-after-close | #1 |
 | R3 | `run_in_executor` breaks atomic write (tmp+rename) of `_save_state` | Low | High | Keep the full write+rename inside one executor call; test atomicity | #2 |
