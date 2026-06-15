@@ -261,9 +261,10 @@ resolve_version() {
         return
     fi
     # Default: hit GitHub API for the latest release.
+    local repo="${KIRO_REPO:-eliecer2000/kiro-gateway}"
     local body
     body="$(curl_https -fsSL \
-        https://api.github.com/repos/Jwadow/kiro-gateway/releases/latest)" || {
+        "https://api.github.com/repos/${repo}/releases/latest")" || {
         log_error "Could not query GitHub for latest release. Pass --version X.Y.Z or --insecure."
         exit 1
     }
@@ -278,7 +279,8 @@ resolve_version() {
 }
 
 tarball_url() {
-    printf 'https://github.com/Jwadow/kiro-gateway/archive/refs/tags/v%s.tar.gz' "$VERSION"
+    local repo="${KIRO_REPO:-eliecer2000/kiro-gateway}"
+    printf 'https://github.com/%s/archive/refs/tags/v%s.tar.gz' "$repo" "$VERSION"
 }
 
 fetch_tarball() {
@@ -294,7 +296,7 @@ verify_sha256() {
         log_warn "WARNING: skipping SHA256 verification (--insecure). Use only for development."
         return
     fi
-    local sums_url="https://github.com/Jwadow/kiro-gateway/releases/download/v${VERSION}/SHA256SUMS"
+    local sums_url="https://github.com/${KIRO_REPO:-eliecer2000/kiro-gateway}/releases/download/v${VERSION}/SHA256SUMS"
     local sums
     if ! sums="$(curl_https -fsSL "$sums_url" 2>/dev/null)"; then
         log_error "No SHA256SUMS available. Re-run with --insecure to skip verification."
