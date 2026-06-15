@@ -213,6 +213,8 @@ EOF
 }
 
 install_symlink() {
+    cp "${INSTALL_DIR}/app/scripts/kiro-gateway" "${INSTALL_DIR}/bin/kiro-gateway"
+    chmod +x "${INSTALL_DIR}/bin/kiro-gateway"
     mkdir -p "${HOME}/.local/bin"
     ln -sf "${INSTALL_DIR}/bin/kiro-gateway" "${HOME}/.local/bin/kiro-gateway"
 }
@@ -456,7 +458,9 @@ post_install_summary() {
     log_info ""
     log_info "Next steps:"
     log_info "  1. Edit ${INSTALL_DIR}/state/.env with your Kiro credentials."
-    log_info "  2. Run: kiro-gateway start"
+    log_info "  2. Ensure ~/.local/bin is in your PATH:"
+    log_info "       export PATH=\"\$HOME/.local/bin:\$PATH\"  # add to ~/.zshrc or ~/.bashrc"
+    log_info "  3. Run: kiro-gateway start"
 }
 
 # ---------------------------------------------------------------------------
