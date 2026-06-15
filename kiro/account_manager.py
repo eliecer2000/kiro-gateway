@@ -224,6 +224,9 @@ class AccountManager:
         # PR #1 (perf-async-improvements): shared refresh client threaded into
         # KiroAuthManager during _initialize_account. Owned by the FastAPI lifespan.
         self._auth_http_client = auth_http_client
+        # PR #2 (perf-async-improvements): serialize concurrent off-loop _save_state
+        # calls so the thread bodies do not interleave on the same file.
+        self._save_lock = asyncio.Lock()
     
     async def load_credentials(self) -> None:
         """
@@ -386,9 +389,12 @@ class AccountManager:
     async def _save_state(self) -> None:
         """
         Save runtime state to state.json atomically.
-        
-        Uses tmp file + rename for atomic write.
+
+        Uses tmp file + rename for atomic write. The blocking json.dump +
+        replace sequence runs in a worker thread via asyncio.to_thread so the
+        event loop is not blocked (PR #2 of perf-async-improvements).
         """
+        # Build the snapshot on the event loop (microseconds, in-memory dict reads).
         state_data = {
             "current_account_index": self._current_account_index,
             "accounts": {
@@ -411,22 +417,30 @@ class AccountManager:
                 for model, mal in self._model_to_accounts.items()
             }
         }
-        
+
         state_path = Path(self._state_file)
         tmp_path = state_path.with_suffix('.json.tmp')
-        
-        try:
-            with open(tmp_path, 'w', encoding='utf-8') as f:
-                json.dump(state_data, f, indent=2, ensure_ascii=False)
-            
-            # Atomic rename
-            tmp_path.replace(state_path)
-            logger.debug("State saved successfully")
-        
-        except Exception as e:
-            logger.error(f"Failed to save state: {e}")
-            if tmp_path.exists():
-                tmp_path.unlink()
+
+        # Single closure preserves atomicity: json.dump + rename must run as
+        # one unit so a crash mid-write does not leave a half-written file.
+        def _write() -> None:
+            try:
+                with open(tmp_path, 'w', encoding='utf-8') as f:
+                    json.dump(state_data, f, indent=2, ensure_ascii=False)
+
+                # Atomic rename
+                tmp_path.replace(state_path)
+                logger.debug("State saved successfully")
+
+            except Exception as e:
+                logger.error(f"Failed to save state: {e}")
+                if tmp_path.exists():
+                    tmp_path.unlink()
+
+        # Serialize concurrent saves; the lock is held only across to_thread,
+        # never across any HTTP await.
+        async with self._save_lock:
+            await asyncio.to_thread(_write)
     
     async def save_state_periodically(self) -> None:
         """
