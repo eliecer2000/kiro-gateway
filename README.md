@@ -21,6 +21,12 @@ Made with ❤️ by [@Jwadow](https://github.com/jwadow)
 
 ---
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jwadow/kiro-gateway/main/scripts/install.sh | bash -s -- install
+```
+
+---
+
 ## 🤖 Available Models (Free List)
 
 > ⚠️ **Important:** Model availability depends on your Kiro tier (free/paid). The gateway provides access to whatever models are available in your IDE or CLI based on your subscription. The list below shows models commonly available on the **free tier**.
@@ -70,8 +76,9 @@ Made with ❤️ by [@Jwadow](https://github.com/jwadow)
 ## 🚀 Quick Start
 
 **Choose your deployment method:**
-- 🐍 **Native Python** - Full control, easy debugging
+- 🍎 **One-liner (recommended)** — macOS / systemd Linux, registered as a service
 - 🐳 **Docker** - Isolated environment, easy deployment → [jump to Docker](#-docker-deployment)
+- 🐍 **Native Python** - Full control, easy debugging → [jump to Development install](#-development-install)
 
 ### Prerequisites
 
@@ -80,7 +87,31 @@ Made with ❤️ by [@Jwadow](https://github.com/jwadow)
   - [Kiro IDE](https://kiro.dev/) with logged in account, OR
   - [Kiro CLI](https://kiro.dev/cli/) with AWS SSO (AWS IAM Identity Center, OIDC) - free Builder ID or corporate account
 
-### Installation
+### Installation (one-liner, recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jwadow/kiro-gateway/main/scripts/install.sh | bash -s -- install
+```
+
+The installer lays out a hidden install root (`~/Library/Application Support/KiroGateway/` on macOS, `~/.local/share/kiro-gateway/` on Linux), bootstraps a venv, verifies the SHA256, renders the platform service file, and registers it (without enabling autostart). After install:
+
+```bash
+# Edit credentials
+${EDITOR:-vi} "$(kiro-gateway path)"/../state/.env
+
+# Start the gateway
+kiro-gateway start
+
+# Status + /health probe
+kiro-gateway status
+
+# Tail logs
+kiro-gateway logs
+```
+
+See [`docs/install.md`](docs/install.md) for the full guide (update, uninstall, log rotation, troubleshooting).
+
+### Development install (fallback)
 
 ```bash
 # Clone the repository (requires Git)
