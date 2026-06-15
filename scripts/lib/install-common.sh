@@ -377,9 +377,7 @@ render_and_install_service() {
     if [[ "${UNAME_S:-$(uname -s)}" == "Darwin" ]]; then
         local dest="${HOME}/Library/LaunchAgents/com.jwadow.kiro-gateway.plist"
         mkdir -p "$(dirname "$dest")"
-        local src
-        src="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/system/kiro-gateway.plist"
-        # shellcheck disable=SC2002
+        local src="${INSTALL_DIR}/app/scripts/system/kiro-gateway.plist"
         sed -e "s|\${INSTALL_DIR}|${INSTALL_DIR}|g" \
             -e "s|\${HOME}|${HOME}|g" \
             "$src" > "$dest"
@@ -387,9 +385,7 @@ render_and_install_service() {
     else
         local dest="${HOME}/.config/systemd/user/kiro-gateway.service"
         mkdir -p "$(dirname "$dest")"
-        local src
-        src="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/system/kiro-gateway.service"
-        # shellcheck disable=SC2002
+        local src="${INSTALL_DIR}/app/scripts/system/kiro-gateway.service"
         sed -e "s|\${INSTALL_DIR}|${INSTALL_DIR}|g" \
             -e "s|\${HOME}|${HOME}|g" \
             "$src" > "$dest"
