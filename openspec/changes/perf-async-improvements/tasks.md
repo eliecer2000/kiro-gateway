@@ -16,22 +16,22 @@
 **Files:** `kiro/auth.py`, `kiro/routes_openai.py`, `kiro/routes_anthropic.py`, `kiro/account_manager.py`, `main.py`  
 **New test file:** `tests/unit/test_perf_pr1_shared_client.py`
 
-- [ ] T1.1 [TEST] Write `test_kiro_auth_manager_accepts_refresh_client` — assert `KiroAuthManager(refresh_client=mock_client)` stores it as `self._refresh_client` without raising — `tests/unit/test_perf_pr1_shared_client.py`
-- [ ] T1.2 [IMPL] Add `refresh_client: Optional[httpx.AsyncClient] = None` parameter to `KiroAuthManager.__init__` (`auth.py:119`); store as `self._refresh_client` — `kiro/auth.py`
-- [ ] T1.3 [TEST] Write `test_auth_refresh_desktop_uses_refresh_client` — patch `app.state.auth_http_client` with a mock; trigger `force_refresh()`; assert mock's `.post` is called and no new `httpx.AsyncClient()` is constructed — `tests/unit/test_perf_pr1_shared_client.py`
-- [ ] T1.4 [IMPL] Replace `async with httpx.AsyncClient(timeout=30)` in `_refresh_token_kiro_desktop` (`auth.py:708`) with injected-client pattern: use `self._refresh_client` when set, fall back to a per-call client (with `owns` guard + `aclose()` in finally) — `kiro/auth.py`
-- [ ] T1.5 [IMPL] Same injected-client replacement in `_refresh_token_aws_sso_oidc` (`auth.py:825`) — `kiro/auth.py`
-- [ ] T1.6 [TEST] Write `test_streaming_openai_uses_shared_client` — spy on `KiroHttpClient.__init__`; assert `shared_client` arg `is request.app.state.http_client`; assert no new `httpx.AsyncClient()` constructed during streaming OpenAI request — `tests/unit/test_perf_pr1_shared_client.py`
-- [ ] T1.7 [IMPL] Change streaming branch in `routes_openai.py` (lines ~351, ~603): replace `shared_client=None` with `shared_client=getattr(request.app.state, "http_client", None)`; add warning log when `None` — `kiro/routes_openai.py`
-- [ ] T1.8 [TEST] Write `test_streaming_anthropic_uses_shared_client` — same as T1.6 but targeting Anthropic streaming endpoint (lines ~414, ~726) — `tests/unit/test_perf_pr1_shared_client.py`
-- [ ] T1.9 [IMPL] Change streaming branch in `routes_anthropic.py` (lines ~414, ~726): same `getattr` pattern as T1.7 — `kiro/routes_anthropic.py`
-- [ ] T1.10 [TEST] Write `test_connection_close_header_on_stream` — intercept outgoing request via `MockTransport`; call `http_client.request_with_retry(..., stream=True)`; assert `Connection: close` in captured request headers (regression for issues #38, #54) — `tests/unit/test_perf_pr1_shared_client.py`
-- [ ] T1.11 [TEST] Write `test_auth_singleton_lifecycle` — boot app via `httpx.ASGITransport`; assert `app.state.auth_http_client` is not `None` after startup and `is_closed == True` after shutdown — `tests/unit/test_perf_pr1_shared_client.py`
-- [ ] T1.12 [IMPL] Create `app.state.auth_http_client = httpx.AsyncClient(timeout=httpx.Timeout(30.0), follow_redirects=True)` in lifespan startup (`main.py:351` block); add `await app.state.auth_http_client.aclose()` in lifespan shutdown (`main.py:530`) — `main.py`
-- [ ] T1.13 [IMPL] Add optional `auth_http_client: Optional[httpx.AsyncClient] = None` to `AccountManager.__init__`; store as `self._auth_http_client`; forward as `refresh_client=self._auth_http_client` in all three `KiroAuthManager(...)` constructions (`account_manager.py:473/480/487`) — `kiro/account_manager.py`
-- [ ] T1.14 [IMPL] Pass `auth_http_client=app.state.auth_http_client` to `AccountManager(...)` in `main.py:456` — `main.py`
-- [ ] T1.15 [TEST] Write `test_no_close_wait_regression` — 5 concurrent streaming requests via `asyncio.gather()` with a connection-counting `MockTransport`; assert active connection count returns to 0 after all responses are consumed — `tests/unit/test_perf_pr1_shared_client.py`
-- [ ] T1.16 [TEST] Run full suite: `.venv/bin/pytest tests/unit/` — all 1673 baseline tests + new T1.x tests must pass
+- [x] T1.1 [TEST] Write `test_kiro_auth_manager_accepts_refresh_client` — assert `KiroAuthManager(refresh_client=mock_client)` stores it as `self._refresh_client` without raising — `tests/unit/test_perf_pr1_shared_client.py`
+- [x] T1.2 [IMPL] Add `refresh_client: Optional[httpx.AsyncClient] = None` parameter to `KiroAuthManager.__init__` (`auth.py:119`); store as `self._refresh_client` — `kiro/auth.py`
+- [x] T1.3 [TEST] Write `test_auth_refresh_desktop_uses_refresh_client` — patch `app.state.auth_http_client` with a mock; trigger `force_refresh()`; assert mock's `.post` is called and no new `httpx.AsyncClient()` is constructed — `tests/unit/test_perf_pr1_shared_client.py`
+- [x] T1.4 [IMPL] Replace `async with httpx.AsyncClient(timeout=30)` in `_refresh_token_kiro_desktop` (`auth.py:708`) with injected-client pattern: use `self._refresh_client` when set, fall back to a per-call client (with `owns` guard + `aclose()` in finally) — `kiro/auth.py`
+- [x] T1.5 [IMPL] Same injected-client replacement in `_refresh_token_aws_sso_oidc` (`auth.py:825`) — `kiro/auth.py`
+- [x] T1.6 [TEST] Write `test_streaming_openai_uses_shared_client` — spy on `KiroHttpClient.__init__`; assert `shared_client` arg `is request.app.state.http_client`; assert no new `httpx.AsyncClient()` constructed during streaming OpenAI request — `tests/unit/test_perf_pr1_shared_client.py`
+- [x] T1.7 [IMPL] Change streaming branch in `routes_openai.py` (lines ~351, ~603): replace `shared_client=None` with `shared_client=getattr(request.app.state, "http_client", None)`; add warning log when `None` — `kiro/routes_openai.py`
+- [x] T1.8 [TEST] Write `test_streaming_anthropic_uses_shared_client` — same as T1.6 but targeting Anthropic streaming endpoint (lines ~414, ~726) — `tests/unit/test_perf_pr1_shared_client.py`
+- [x] T1.9 [IMPL] Change streaming branch in `routes_anthropic.py` (lines ~414, ~726): same `getattr` pattern as T1.7 — `kiro/routes_anthropic.py`
+- [x] T1.10 [TEST] Write `test_connection_close_header_on_stream` — intercept outgoing request via `MockTransport`; call `http_client.request_with_retry(..., stream=True)`; assert `Connection: close` in captured request headers (regression for issues #38, #54) — `tests/unit/test_perf_pr1_shared_client.py`
+- [x] T1.11 [TEST] Write `test_auth_singleton_lifecycle` — boot app via `httpx.ASGITransport`; assert `app.state.auth_http_client` is not `None` after startup and `is_closed == True` after shutdown — `tests/unit/test_perf_pr1_shared_client.py`
+- [x] T1.12 [IMPL] Create `app.state.auth_http_client = httpx.AsyncClient(timeout=httpx.Timeout(30.0), follow_redirects=True)` in lifespan startup (`main.py:351` block); add `await app.state.auth_http_client.aclose()` in lifespan shutdown (`main.py:530`) — `main.py`
+- [x] T1.13 [IMPL] Add optional `auth_http_client: Optional[httpx.AsyncClient] = None` to `AccountManager.__init__`; store as `self._auth_http_client`; forward as `refresh_client=self._auth_http_client` in all three `KiroAuthManager(...)` constructions (`account_manager.py:473/480/487`) — `kiro/account_manager.py`
+- [x] T1.14 [IMPL] Pass `auth_http_client=app.state.auth_http_client` to `AccountManager(...)` in `main.py:456` — `main.py`
+- [x] T1.15 [TEST] Write `test_no_close_wait_regression` — 5 concurrent streaming requests via `asyncio.gather()` with a connection-counting `MockTransport`; assert active connection count returns to 0 after all responses are consumed — `tests/unit/test_perf_pr1_shared_client.py`
+- [x] T1.16 [TEST] Run full suite: `.venv/bin/pytest tests/unit/` — all 1673 baseline tests + new T1.x tests must pass
 
 **PR #1 acceptance gates:**
 - `rg 'httpx\.AsyncClient\(' kiro/auth.py kiro/routes_openai.py kiro/routes_anthropic.py` returns 0 matches in hot-path handlers (only module-level or startup wiring permitted)
