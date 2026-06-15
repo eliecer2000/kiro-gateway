@@ -81,18 +81,49 @@ is_macos() {
 cmd_start() {
     guard_installed
     if is_macos; then
-        # Try modern bootstrap first; fall back to legacy `load` (works outside GUI context).
-        launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" 2>/dev/null || \
-            launchctl load -w "$(plumbed_plist)" >&2
+        # Try modern bootstrap, then legacy load; if both fail (e.g. no GUI session),
+        # fall back to launching the process directly in the background.
+        if launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" 2>/dev/null || \
+           launchctl load -w "$(plumbed_plist)" 2>/dev/null; then
+            return 0
+        fi
+        _start_direct
     else
         systemctl --user start kiro-gateway >&2
     fi
+}
+
+_start_direct() {
+    local plist
+    plist="$(plumbed_plist)"
+    local python="${INSTALL_DIR}/venv/bin/python"
+    local app="${INSTALL_DIR}/app"
+    local state="${INSTALL_DIR}/state"
+    local log="${INSTALL_DIR}/logs/kiro-gateway.log"
+    mkdir -p "${INSTALL_DIR}/logs"
+    # Read env vars from the rendered plist (simple grep, no xml parser needed).
+    local env_home env_accounts env_state
+    env_home="$(grep -A1 'KIRO_GATEWAY_HOME' "$plist" 2>/dev/null | grep '<string>' | sed 's/.*<string>\(.*\)<\/string>.*/\1/' | head -1)"
+    env_accounts="$(grep -A1 'ACCOUNTS_CONFIG_FILE' "$plist" 2>/dev/null | grep '<string>' | sed 's/.*<string>\(.*\)<\/string>.*/\1/' | head -1)"
+    env_state_file="$(grep -A1 'ACCOUNTS_STATE_FILE' "$plist" 2>/dev/null | grep '<string>' | sed 's/.*<string>\(.*\)<\/string>.*/\1/' | head -1)"
+    KIRO_GATEWAY_HOME="${env_home:-$INSTALL_DIR}" \
+    ACCOUNTS_CONFIG_FILE="${env_accounts:-$state/credentials.json}" \
+    ACCOUNTS_STATE_FILE="${env_state_file:-$state/state.json}" \
+        nohup "$python" "${app}/main.py" >> "$log" 2>&1 &
+    local pid=$!
+    printf '%s\n' "$pid" > "${INSTALL_DIR}/state/kiro-gateway.pid"
+    printf 'Started kiro-gateway (pid %s). Logs: %s\n' "$pid" "$log" >&2
 }
 
 cmd_stop() {
     guard_installed
     if is_macos; then
         launchctl bootout "gui/$(id -u)/com.jwadow.kiro-gateway" 2>/dev/null || true
+        local pidfile="${INSTALL_DIR}/state/kiro-gateway.pid"
+        if [[ -f "$pidfile" ]]; then
+            kill "$(cat "$pidfile")" 2>/dev/null || true
+            rm -f "$pidfile"
+        fi
     else
         systemctl --user stop kiro-gateway 2>/dev/null || true
     fi
