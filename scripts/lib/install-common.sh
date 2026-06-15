@@ -361,12 +361,8 @@ venv_bootstrap_or_refresh() {
         return
     fi
     rm -rf "${INSTALL_DIR}/venv"
-    mkdir -p "${INSTALL_DIR}/venv"
-    # Real implementation would do: python3 -m venv "${INSTALL_DIR}/venv" && pip install ...
-    # Tests stub `python3`, so just create the directory and bin/ tree.
-    mkdir -p "${INSTALL_DIR}/venv/bin"
-    printf '#!/usr/bin/env bash\nexec python3 "$@"\n' > "${INSTALL_DIR}/venv/bin/python"
-    chmod +x "${INSTALL_DIR}/venv/bin/python"
+    python3 -m venv "${INSTALL_DIR}/venv"
+    "${INSTALL_DIR}/venv/bin/pip" install --quiet -r "${INSTALL_DIR}/app/requirements.txt"
     printf '%s\n' "$new_hash" > "$req_hash_file"
 }
 
