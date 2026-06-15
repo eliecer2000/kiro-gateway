@@ -8,7 +8,7 @@
     <string>${INSTALL_DIR}/venv/bin/python</string>
     <string>main.py</string>
   </array>
-  <key>WorkingDirectory</key> <string>${INSTALL_DIR}/state</string>
+  <key>WorkingDirectory</key> <string>${INSTALL_DIR}/app</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>KIRO_GATEWAY_HOME</key>     <string>${INSTALL_DIR}</string>
