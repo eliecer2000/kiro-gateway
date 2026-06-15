@@ -215,6 +215,9 @@ EOF
 install_symlink() {
     cp "${INSTALL_DIR}/app/scripts/kiro-gateway" "${INSTALL_DIR}/bin/kiro-gateway"
     chmod +x "${INSTALL_DIR}/bin/kiro-gateway"
+    # The wrapper sources ${INSTALL_DIR}/lib/install-common.sh at runtime.
+    mkdir -p "${INSTALL_DIR}/lib"
+    ln -sf "${INSTALL_DIR}/app/scripts/lib/install-common.sh" "${INSTALL_DIR}/lib/install-common.sh"
     mkdir -p "${HOME}/.local/bin"
     ln -sf "${INSTALL_DIR}/bin/kiro-gateway" "${HOME}/.local/bin/kiro-gateway"
 }
