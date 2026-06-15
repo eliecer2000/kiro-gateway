@@ -205,7 +205,7 @@ lay_out_state() {
 
 write_install_env() {
     cat > "${INSTALL_DIR}/state/install.env" <<EOF
-INSTALL_DIR=${INSTALL_DIR}
+INSTALL_DIR="${INSTALL_DIR}"
 VERSION=${VERSION}
 PLATFORM=${UNAME_S:-$(uname -s)}
 INSTALLED_AT=$(date -u +%FT%TZ 2>/dev/null || date -u)
