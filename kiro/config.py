@@ -29,6 +29,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
+from loguru import logger
 
 # Load environment variables
 load_dotenv()
@@ -56,24 +57,24 @@ def _get_raw_env_value(var_name: str, env_file: str = ".env") -> Optional[str]:
     try:
         # Read file as-is, without interpretation
         content = env_path.read_text(encoding="utf-8")
-        
+
         # Search for variable considering different formats:
         # VAR="value" or VAR='value' or VAR=value
         # Pattern captures value with or without quotes
         pattern = rf'^{re.escape(var_name)}=(["\']?)(.+?)\1\s*$'
-        
+
         for line in content.splitlines():
             line = line.strip()
             if line.startswith("#") or not line:
                 continue
-            
+
             match = re.match(pattern, line)
             if match:
                 # Return value as-is, without processing escape sequences
                 return match.group(2)
-    except Exception:
-        pass
-    
+    except (OSError, UnicodeDecodeError, re.error) as e:
+        logger.debug("Failed to read {} for var {}: {}", env_file, var_name, e)
+
     return None
 
 # ==================================================================================================
@@ -282,6 +283,7 @@ FALLBACK_MODELS: List[Dict[str, str]] = [
     {"modelId": "claude-opus-4.5"},
     {"modelId": "claude-opus-4.6"},
     {"modelId": "claude-opus-4.7"},
+    {"modelId": "claude-opus-4.8"},
     {"modelId": "deepseek-3.2"},
     {"modelId": "glm-5"},
     {"modelId": "minimax-m2.1"},
@@ -384,36 +386,24 @@ else:
 DEBUG_DIR: str = os.getenv("DEBUG_DIR", "debug_logs")
 
 
-def _warn_timeout_configuration():
-    """
-    Print warning if timeout configuration is suboptimal.
-    Called at application startup.
-    
-    FIRST_TOKEN_TIMEOUT should be less than STREAMING_READ_TIMEOUT:
-    - FIRST_TOKEN_TIMEOUT: time to wait for model to START responding
+def _warn_timeout_configuration() -> None:
+    """Print warning if timeout configuration is suboptimal.
+
+    Called at application startup. FIRST_TOKEN_TIMEOUT should be less than
+    STREAMING_READ_TIMEOUT because they govern different stages of a request:
+    - FIRST_TOKEN_TIMEOUT: time to wait for the model to START responding
     - STREAMING_READ_TIMEOUT: time to wait BETWEEN chunks during streaming
     """
     if FIRST_TOKEN_TIMEOUT >= STREAMING_READ_TIMEOUT:
-        import sys
-        YELLOW = "\033[93m"
-        RESET = "\033[0m"
-        
-        warning_text = f"""
-{YELLOW}⚠️  WARNING: Suboptimal timeout configuration detected.
-    
-    FIRST_TOKEN_TIMEOUT ({FIRST_TOKEN_TIMEOUT}s) >= STREAMING_READ_TIMEOUT ({STREAMING_READ_TIMEOUT}s)
-    
-    These timeouts serve different purposes:
-      - FIRST_TOKEN_TIMEOUT: time to wait for model to START responding (default: 15s)
-      - STREAMING_READ_TIMEOUT: time to wait BETWEEN chunks during streaming (default: 300s)
-    
-    Recommendation: FIRST_TOKEN_TIMEOUT should be LESS than STREAMING_READ_TIMEOUT.
-    
-    Example configuration:
-      FIRST_TOKEN_TIMEOUT=15
-      STREAMING_READ_TIMEOUT=300{RESET}
-"""
-        print(warning_text, file=sys.stderr)
+        logger.warning(
+            "Suboptimal timeout configuration: "
+            "FIRST_TOKEN_TIMEOUT ({}s) >= STREAMING_READ_TIMEOUT ({}s). "
+            "These serve different purposes — FIRST_TOKEN_TIMEOUT waits for the model to START "
+            "responding; STREAMING_READ_TIMEOUT waits BETWEEN chunks. "
+            "Recommended: FIRST_TOKEN_TIMEOUT=15, STREAMING_READ_TIMEOUT=300.",
+            FIRST_TOKEN_TIMEOUT,
+            STREAMING_READ_TIMEOUT,
+        )
 
 # ==================================================================================================
 # Fake Reasoning Settings (Extended Thinking via Tag Injection)
@@ -474,7 +464,7 @@ FAKE_REASONING_OPEN_TAGS: List[str] = ["<thinking>", "<think>", "<reasoning>", "
 # Maximum size of initial buffer for tag detection (characters).
 # If no thinking tag is found within this limit, content is treated as regular response.
 # Lower values = faster first token, but may miss tags with leading whitespace.
-# Default: 30 characters (enough for longest tag + some whitespace)
+# Default: 20 characters (enough for longest tag + some whitespace)
 FAKE_REASONING_INITIAL_BUFFER_SIZE: int = int(os.getenv("FAKE_REASONING_INITIAL_BUFFER_SIZE", "20"))
 
 
@@ -561,21 +551,48 @@ APP_DESCRIPTION: str = "Proxy gateway for Kiro API (Amazon Q Developer / AWS Cod
 
 
 def get_kiro_refresh_url(region: str) -> str:
-    """Return Kiro Desktop Auth token refresh URL for the specified region."""
+    """Return Kiro Desktop Auth token refresh URL for the specified region.
+
+    Args:
+        region: AWS region identifier (e.g., ``"us-east-1"``).
+
+    Returns:
+        Fully qualified Kiro Desktop Auth refresh URL.
+    """
     return KIRO_REFRESH_URL_TEMPLATE.format(region=region)
 
 
 def get_aws_sso_oidc_url(region: str) -> str:
-    """Return AWS SSO OIDC token URL for the specified region."""
+    """Return AWS SSO OIDC token URL for the specified region.
+
+    Args:
+        region: AWS SSO region identifier (e.g., ``"us-east-1"``).
+
+    Returns:
+        Fully qualified AWS SSO OIDC token endpoint URL.
+    """
     return AWS_SSO_OIDC_URL_TEMPLATE.format(region=region)
 
 
 def get_kiro_api_host(region: str) -> str:
-    """Return API host for the specified region."""
+    """Return the Kiro runtime API host for the specified region.
+
+    Args:
+        region: AWS region identifier (e.g., ``"us-east-1"``).
+
+    Returns:
+        Base URL for ``generateAssistantResponse`` requests.
+    """
     return KIRO_API_HOST_TEMPLATE.format(region=region)
 
 
 def get_kiro_q_host(region: str) -> str:
-    """Return Q API host for the specified region."""
-    return KIRO_Q_HOST_TEMPLATE.format(region=region)
+    """Return the Kiro Q API host for the specified region.
 
+    Args:
+        region: AWS region identifier (e.g., ``"us-east-1"``).
+
+    Returns:
+        Base URL for ``ListAvailableModels`` requests.
+    """
+    return KIRO_Q_HOST_TEMPLATE.format(region=region)

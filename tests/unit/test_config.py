@@ -7,13 +7,21 @@ Verifies loading settings from environment variables.
 
 import pytest
 import os
+from pathlib import Path
+from typing import Callable, Dict, Optional
 from unittest.mock import patch
 
 
 class TestLogLevelConfig:
     """Tests for LOG_LEVEL configuration."""
-    
-    def test_default_log_level_is_info(self):
+
+    def teardown_method(self, method: Callable[..., object]) -> None:
+        """Restore module state after every test that reloads kiro.config."""
+        import importlib
+        import kiro.config as config_module
+        importlib.reload(config_module)
+
+    def test_default_log_level_is_info(self) -> None:
         """
         What it does: Verifies that LOG_LEVEL defaults to INFO.
         Purpose: Ensure that INFO is used when no environment variable is set.
@@ -48,7 +56,7 @@ class TestLogLevelConfig:
         import kiro.config as config_module
         importlib.reload(config_module)
     
-    def test_log_level_from_environment(self):
+    def test_log_level_from_environment(self) -> None:
         """
         What it does: Verifies loading LOG_LEVEL from environment variable.
         Purpose: Ensure that the value from environment is used.
@@ -64,7 +72,7 @@ class TestLogLevelConfig:
             print(f"Comparing: Expected 'DEBUG', Got '{config_module.LOG_LEVEL}'")
             assert config_module.LOG_LEVEL == "DEBUG"
     
-    def test_log_level_uppercase_conversion(self):
+    def test_log_level_uppercase_conversion(self) -> None:
         """
         What it does: Verifies LOG_LEVEL conversion to uppercase.
         Purpose: Ensure that lowercase value is converted to uppercase.
@@ -80,7 +88,7 @@ class TestLogLevelConfig:
             print(f"Comparing: Expected 'WARNING', Got '{config_module.LOG_LEVEL}'")
             assert config_module.LOG_LEVEL == "WARNING"
     
-    def test_log_level_trace(self):
+    def test_log_level_trace(self) -> None:
         """
         What it does: Verifies setting LOG_LEVEL=TRACE.
         Purpose: Ensure that TRACE level is supported.
@@ -95,7 +103,7 @@ class TestLogLevelConfig:
             print(f"LOG_LEVEL: {config_module.LOG_LEVEL}")
             assert config_module.LOG_LEVEL == "TRACE"
     
-    def test_log_level_error(self):
+    def test_log_level_error(self) -> None:
         """
         What it does: Verifies setting LOG_LEVEL=ERROR.
         Purpose: Ensure that ERROR level is supported.
@@ -110,7 +118,7 @@ class TestLogLevelConfig:
             print(f"LOG_LEVEL: {config_module.LOG_LEVEL}")
             assert config_module.LOG_LEVEL == "ERROR"
     
-    def test_log_level_critical(self):
+    def test_log_level_critical(self) -> None:
         """
         What it does: Verifies setting LOG_LEVEL=CRITICAL.
         Purpose: Ensure that CRITICAL level is supported.
@@ -129,7 +137,7 @@ class TestLogLevelConfig:
 class TestToolDescriptionMaxLengthConfig:
     """Tests for TOOL_DESCRIPTION_MAX_LENGTH configuration."""
     
-    def test_default_tool_description_max_length(self):
+    def test_default_tool_description_max_length(self) -> None:
         """
         What it does: Verifies the default value for TOOL_DESCRIPTION_MAX_LENGTH.
         Purpose: Ensure that 10000 is used by default.
@@ -147,7 +155,7 @@ class TestToolDescriptionMaxLengthConfig:
             print(f"TOOL_DESCRIPTION_MAX_LENGTH: {config_module.TOOL_DESCRIPTION_MAX_LENGTH}")
             assert config_module.TOOL_DESCRIPTION_MAX_LENGTH == 10000
     
-    def test_tool_description_max_length_from_environment(self):
+    def test_tool_description_max_length_from_environment(self) -> None:
         """
         What it does: Verifies loading TOOL_DESCRIPTION_MAX_LENGTH from environment.
         Purpose: Ensure that the value from environment is used.
@@ -162,7 +170,7 @@ class TestToolDescriptionMaxLengthConfig:
             print(f"TOOL_DESCRIPTION_MAX_LENGTH: {config_module.TOOL_DESCRIPTION_MAX_LENGTH}")
             assert config_module.TOOL_DESCRIPTION_MAX_LENGTH == 5000
     
-    def test_tool_description_max_length_zero_disables(self):
+    def test_tool_description_max_length_zero_disables(self) -> None:
         """
         What it does: Verifies that 0 disables the feature.
         Purpose: Ensure that TOOL_DESCRIPTION_MAX_LENGTH=0 works.
@@ -181,13 +189,13 @@ class TestToolDescriptionMaxLengthConfig:
 class TestTimeoutConfigurationWarning:
     """Tests for _warn_timeout_configuration() function."""
     
-    def test_no_warning_when_first_token_less_than_streaming(self, capsys):
+    def test_no_warning_when_first_token_less_than_streaming(self) -> None:
         """
-        What it does: Verifies that warning is NOT shown with correct configuration.
-        Purpose: Ensure that no warning when FIRST_TOKEN_TIMEOUT < STREAMING_READ_TIMEOUT.
+        What it does: Verifies that logger.warning is NOT called with correct configuration.
+        Purpose: Ensure no warning when FIRST_TOKEN_TIMEOUT < STREAMING_READ_TIMEOUT.
         """
         print("Setup: FIRST_TOKEN_TIMEOUT=15, STREAMING_READ_TIMEOUT=300...")
-        
+
         with patch.dict(os.environ, {
             "FIRST_TOKEN_TIMEOUT": "15",
             "STREAMING_READ_TIMEOUT": "300"
@@ -195,24 +203,19 @@ class TestTimeoutConfigurationWarning:
             import importlib
             import kiro.config as config_module
             importlib.reload(config_module)
-            
-            # Call the warning function
-            config_module._warn_timeout_configuration()
-            
-            captured = capsys.readouterr()
-            print(f"Captured stderr: {captured.err}")
-            
-            # Warning should NOT be shown
-            assert "WARNING" not in captured.err
-            assert "Suboptimal timeout configuration" not in captured.err
-    
-    def test_warning_when_first_token_equals_streaming(self, capsys):
+
+            with patch.object(config_module.logger, "warning") as mock_warning:
+                config_module._warn_timeout_configuration()
+                print(f"logger.warning called: {mock_warning.called}")
+                mock_warning.assert_not_called()
+
+    def test_warning_when_first_token_equals_streaming(self) -> None:
         """
-        What it does: Verifies that warning is shown when timeouts are equal.
-        Purpose: Ensure that warning when FIRST_TOKEN_TIMEOUT == STREAMING_READ_TIMEOUT.
+        What it does: Verifies that logger.warning is called when timeouts are equal.
+        Purpose: Ensure warning when FIRST_TOKEN_TIMEOUT == STREAMING_READ_TIMEOUT.
         """
         print("Setup: FIRST_TOKEN_TIMEOUT=300, STREAMING_READ_TIMEOUT=300...")
-        
+
         with patch.dict(os.environ, {
             "FIRST_TOKEN_TIMEOUT": "300",
             "STREAMING_READ_TIMEOUT": "300"
@@ -220,23 +223,21 @@ class TestTimeoutConfigurationWarning:
             import importlib
             import kiro.config as config_module
             importlib.reload(config_module)
-            
-            # Call the warning function
-            config_module._warn_timeout_configuration()
-            
-            captured = capsys.readouterr()
-            print(f"Captured stderr: {captured.err}")
-            
-            # Warning SHOULD be shown
-            assert "WARNING" in captured.err or "Suboptimal timeout configuration" in captured.err
-    
-    def test_warning_when_first_token_greater_than_streaming(self, capsys):
+
+            with patch.object(config_module.logger, "warning") as mock_warning:
+                config_module._warn_timeout_configuration()
+                print(f"logger.warning called: {mock_warning.called}")
+                mock_warning.assert_called_once()
+                call_args = str(mock_warning.call_args)
+                assert "Suboptimal timeout configuration" in call_args
+
+    def test_warning_when_first_token_greater_than_streaming(self) -> None:
         """
-        What it does: Verifies that warning is shown when FIRST_TOKEN > STREAMING.
-        Purpose: Ensure that warning when FIRST_TOKEN_TIMEOUT > STREAMING_READ_TIMEOUT.
+        What it does: Verifies that logger.warning is called when FIRST_TOKEN > STREAMING.
+        Purpose: Ensure warning when FIRST_TOKEN_TIMEOUT > STREAMING_READ_TIMEOUT.
         """
         print("Setup: FIRST_TOKEN_TIMEOUT=500, STREAMING_READ_TIMEOUT=300...")
-        
+
         with patch.dict(os.environ, {
             "FIRST_TOKEN_TIMEOUT": "500",
             "STREAMING_READ_TIMEOUT": "300"
@@ -244,26 +245,23 @@ class TestTimeoutConfigurationWarning:
             import importlib
             import kiro.config as config_module
             importlib.reload(config_module)
-            
-            # Call the warning function
-            config_module._warn_timeout_configuration()
-            
-            captured = capsys.readouterr()
-            print(f"Captured stderr: {captured.err}")
-            
-            # Warning SHOULD be shown
-            assert "WARNING" in captured.err or "Suboptimal timeout configuration" in captured.err
-            # Verify that timeout values are mentioned in warning
-            assert "500" in captured.err
-            assert "300" in captured.err
-    
-    def test_warning_contains_recommendation(self, capsys):
+
+            with patch.object(config_module.logger, "warning") as mock_warning:
+                config_module._warn_timeout_configuration()
+                print(f"logger.warning called: {mock_warning.called}")
+                mock_warning.assert_called_once()
+                # Verify timeout values appear in the warning message
+                call_args = str(mock_warning.call_args)
+                assert "500" in call_args
+                assert "300" in call_args
+
+    def test_warning_contains_recommendation(self) -> None:
         """
-        What it does: Verifies that warning contains a recommendation.
-        Purpose: Ensure that user receives useful information.
+        What it does: Verifies that the warning message contains actionable guidance.
+        Purpose: Ensure users receive useful information to fix the configuration.
         """
         print("Setup: FIRST_TOKEN_TIMEOUT=400, STREAMING_READ_TIMEOUT=300...")
-        
+
         with patch.dict(os.environ, {
             "FIRST_TOKEN_TIMEOUT": "400",
             "STREAMING_READ_TIMEOUT": "300"
@@ -271,21 +269,19 @@ class TestTimeoutConfigurationWarning:
             import importlib
             import kiro.config as config_module
             importlib.reload(config_module)
-            
-            # Call the warning function
-            config_module._warn_timeout_configuration()
-            
-            captured = capsys.readouterr()
-            print(f"Captured stderr: {captured.err}")
-            
-            # Warning should contain recommendation
-            assert "Recommendation" in captured.err or "LESS than" in captured.err
+
+            with patch.object(config_module.logger, "warning") as mock_warning:
+                config_module._warn_timeout_configuration()
+                print(f"logger.warning called: {mock_warning.called}")
+                mock_warning.assert_called_once()
+                call_args = str(mock_warning.call_args)
+                assert "Recommended" in call_args or "LESS than" in call_args or "Suboptimal" in call_args
 
 
 class TestAwsSsoOidcUrlConfig:
     """Tests for AWS SSO OIDC URL configuration."""
     
-    def test_aws_sso_oidc_url_template_exists(self):
+    def test_aws_sso_oidc_url_template_exists(self) -> None:
         """
         What it does: Verifies that AWS_SSO_OIDC_URL_TEMPLATE constant exists.
         Purpose: Ensure the template is defined in config.
@@ -303,7 +299,7 @@ class TestAwsSsoOidcUrlConfig:
         assert "amazonaws.com" in config_module.AWS_SSO_OIDC_URL_TEMPLATE
         assert "{region}" in config_module.AWS_SSO_OIDC_URL_TEMPLATE
     
-    def test_get_aws_sso_oidc_url_returns_correct_url(self):
+    def test_get_aws_sso_oidc_url_returns_correct_url(self) -> None:
         """
         What it does: Verifies that get_aws_sso_oidc_url returns correct URL.
         Purpose: Ensure the function formats URL correctly.
@@ -319,7 +315,7 @@ class TestAwsSsoOidcUrlConfig:
         print(f"Comparing: Expected '{expected}', Got '{url}'")
         assert url == expected
     
-    def test_get_aws_sso_oidc_url_with_different_regions(self):
+    def test_get_aws_sso_oidc_url_with_different_regions(self) -> None:
         """
         What it does: Verifies URL generation for different regions.
         Purpose: Ensure the function works with various AWS regions.
@@ -344,7 +340,7 @@ class TestAwsSsoOidcUrlConfig:
 class TestServerHostConfig:
     """Tests for SERVER_HOST configuration."""
     
-    def test_default_server_host_is_0_0_0_0(self):
+    def test_default_server_host_is_0_0_0_0(self) -> None:
         """
         What it does: Verifies that SERVER_HOST defaults to 0.0.0.0.
         Purpose: Ensure that 0.0.0.0 (all interfaces) is used when no environment variable is set.
@@ -365,7 +361,7 @@ class TestServerHostConfig:
             assert config_module.SERVER_HOST == "0.0.0.0"
             assert config_module.DEFAULT_SERVER_HOST == "0.0.0.0"
     
-    def test_server_host_from_environment(self):
+    def test_server_host_from_environment(self) -> None:
         """
         What it does: Verifies loading SERVER_HOST from environment variable.
         Purpose: Ensure that the value from environment is used.
@@ -381,7 +377,7 @@ class TestServerHostConfig:
             print(f"Comparing: Expected '127.0.0.1', Got '{config_module.SERVER_HOST}'")
             assert config_module.SERVER_HOST == "127.0.0.1"
     
-    def test_server_host_custom_value(self):
+    def test_server_host_custom_value(self) -> None:
         """
         What it does: Verifies setting SERVER_HOST to a custom IP address.
         Purpose: Ensure that any valid IP address can be used.
@@ -400,7 +396,7 @@ class TestServerHostConfig:
 class TestServerPortConfig:
     """Tests for SERVER_PORT configuration."""
     
-    def test_default_server_port_is_8000(self):
+    def test_default_server_port_is_8000(self) -> None:
         """
         What it does: Verifies that SERVER_PORT defaults to 8000.
         Purpose: Ensure that 8000 is used when no environment variable is set.
@@ -421,7 +417,7 @@ class TestServerPortConfig:
             assert config_module.SERVER_PORT == 8000
             assert config_module.DEFAULT_SERVER_PORT == 8000
     
-    def test_server_port_from_environment(self):
+    def test_server_port_from_environment(self) -> None:
         """
         What it does: Verifies loading SERVER_PORT from environment variable.
         Purpose: Ensure that the value from environment is used.
@@ -437,7 +433,7 @@ class TestServerPortConfig:
             print(f"Comparing: Expected 9000, Got {config_module.SERVER_PORT}")
             assert config_module.SERVER_PORT == 9000
     
-    def test_server_port_custom_value(self):
+    def test_server_port_custom_value(self) -> None:
         """
         What it does: Verifies setting SERVER_PORT to a custom port number.
         Purpose: Ensure that any valid port number can be used.
@@ -452,7 +448,7 @@ class TestServerPortConfig:
             print(f"SERVER_PORT: {config_module.SERVER_PORT}")
             assert config_module.SERVER_PORT == 3000
     
-    def test_server_port_is_integer(self):
+    def test_server_port_is_integer(self) -> None:
         """
         What it does: Verifies that SERVER_PORT is converted to integer.
         Purpose: Ensure that string from environment is converted to int.
@@ -473,7 +469,7 @@ class TestServerPortConfig:
 class TestKiroCliDbFileConfig:
     """Tests for KIRO_CLI_DB_FILE configuration."""
     
-    def test_kiro_cli_db_file_config_exists(self):
+    def test_kiro_cli_db_file_config_exists(self) -> None:
         """
         What it does: Verifies that KIRO_CLI_DB_FILE constant exists.
         Purpose: Ensure the config parameter is defined.
@@ -490,7 +486,7 @@ class TestKiroCliDbFileConfig:
         # Default should be empty string
         assert isinstance(config_module.KIRO_CLI_DB_FILE, str)
     
-    def test_kiro_cli_db_file_from_environment(self):
+    def test_kiro_cli_db_file_from_environment(self) -> None:
         """
         What it does: Verifies loading KIRO_CLI_DB_FILE from environment variable.
         Purpose: Ensure the value from environment is used and normalized.
@@ -517,7 +513,7 @@ class TestKiroCliDbFileConfig:
 class TestFallbackModelsConfig:
     """Tests for FALLBACK_MODELS configuration."""
     
-    def test_fallback_models_exists(self):
+    def test_fallback_models_exists(self) -> None:
         """
         What it does: Verifies that FALLBACK_MODELS constant exists.
         Purpose: Ensure the fallback model list is defined in config.
@@ -533,7 +529,7 @@ class TestFallbackModelsConfig:
         print(f"FALLBACK_MODELS type: {type(config_module.FALLBACK_MODELS)}")
         assert isinstance(config_module.FALLBACK_MODELS, list)
     
-    def test_fallback_models_not_empty(self):
+    def test_fallback_models_not_empty(self) -> None:
         """
         What it does: Verifies that FALLBACK_MODELS contains at least one model.
         Purpose: Ensure fallback list is populated for DNS failure recovery.
@@ -545,7 +541,7 @@ class TestFallbackModelsConfig:
         print(f"Comparing: Expected > 0, Got {len(FALLBACK_MODELS)}")
         assert len(FALLBACK_MODELS) > 0
     
-    def test_fallback_models_structure(self):
+    def test_fallback_models_structure(self) -> None:
         """
         What it does: Verifies that each fallback model has required modelId field.
         Purpose: Ensure fallback models have correct structure for cache.update().
@@ -569,7 +565,7 @@ class TestFallbackModelsConfig:
             print(f"  Verification: modelId is not empty...")
             assert len(model["modelId"]) > 0, f"Model {i} modelId is empty"
     
-    def test_fallback_models_contain_claude_models(self):
+    def test_fallback_models_contain_claude_models(self) -> None:
         """
         What it does: Verifies that fallback models include Claude models.
         Purpose: Ensure fallback list contains expected Claude 4/4.5 models.
@@ -584,33 +580,37 @@ class TestFallbackModelsConfig:
         has_claude = any("claude" in mid.lower() for mid in model_ids)
         assert has_claude, "No Claude models in fallback list"
     
-    def test_fallback_models_use_dot_format(self):
+    def test_fallback_models_use_dot_format(self) -> None:
         """
-        What it does: Verifies that model IDs use dot format (e.g., claude-4.5).
-        Purpose: Ensure consistency with Kiro API format.
+        What it does: Verifies that versioned model IDs use dot format (e.g., claude-4.5).
+        Purpose: Ensure consistency with Kiro API format — dash format (claude-4-5) is wrong.
         """
         print("Setup: Importing FALLBACK_MODELS...")
         from kiro.config import FALLBACK_MODELS
-        
-        print("Action: Checking model ID format...")
+
+        print("Action: Checking model ID format for versioned models...")
+        dash_format_violations = []
         for model in FALLBACK_MODELS:
             model_id = model["modelId"]
             print(f"Checking: {model_id}")
-            
-            # If model has version number, it should use dot format
-            if any(char.isdigit() for char in model_id):
-                # Check for patterns like "4.5" or "4-5"
-                if "-4-5" in model_id or "-4-0" in model_id:
-                    print(f"  WARNING: {model_id} uses dash format instead of dot")
-                    # This is acceptable but not ideal
-                    pass
+            # Versioned models must use dot separator (e.g., claude-opus-4.5, not claude-opus-4-5)
+            # Pattern: digit-digit anywhere in the name indicates a version in dash format
+            import re
+            if re.search(r'\d-\d', model_id):
+                dash_format_violations.append(model_id)
+                print(f"  VIOLATION: {model_id} uses dash format instead of dot")
+
+        print(f"Verification: Dash-format violations: {dash_format_violations}")
+        assert dash_format_violations == [], (
+            f"Model IDs must use dot format for versions. Dash-format violations: {dash_format_violations}"
+        )
 
 
 class TestFallbackModelsIntegration:
     """Integration tests for FALLBACK_MODELS with ModelResolver."""
     
     @pytest.mark.asyncio
-    async def test_fallback_models_work_with_model_resolver(self):
+    async def test_fallback_models_work_with_model_resolver(self) -> None:
         """
         What it does: Verifies that fallback models work with ModelResolver normalization.
         Purpose: Ensure that model name normalization (claude-opus-4-5 → claude-opus-4.5)
@@ -660,34 +660,42 @@ class TestFallbackModelsIntegration:
             assert resolution.is_verified is True
     
     @pytest.mark.asyncio
-    async def test_fallback_models_appear_in_available_models(self):
+    async def test_fallback_models_appear_in_available_models(self) -> None:
         """
-        What it does: Verifies that fallback models appear in get_available_models().
+        What it does: Verifies that non-hidden fallback models appear in get_available_models().
         Purpose: Ensure that /v1/models endpoint will show fallback models.
+
+        Note: HIDDEN_FROM_LIST (e.g., ["auto"]) excludes models from the listing even when
+        they are present in the cache. This test passes hidden_from_list explicitly so the
+        assertion is not fragile when the module-level default changes.
         """
         print("Setup: Importing FALLBACK_MODELS and creating cache...")
-        from kiro.config import FALLBACK_MODELS
+        from kiro.config import FALLBACK_MODELS, HIDDEN_FROM_LIST
         from kiro.cache import ModelInfoCache
         from kiro.model_resolver import ModelResolver
-        
+
         cache = ModelInfoCache()
         await cache.update(FALLBACK_MODELS)
-        
-        resolver = ModelResolver(cache=cache, hidden_models={})
-        
+
+        # Use the same hidden_from_list as production so the assertion is deterministic
+        resolver = ModelResolver(cache=cache, hidden_models={}, hidden_from_list=HIDDEN_FROM_LIST)
+
         print("Action: Getting available models...")
         available = resolver.get_available_models()
-        
-        print(f"Available models: {available}")
-        print(f"Comparing length: Expected {len(FALLBACK_MODELS)}, Got {len(available)}")
-        assert len(available) == len(FALLBACK_MODELS)
-        
-        # Verify all fallback models are present
-        fallback_ids = {m["modelId"] for m in FALLBACK_MODELS}
         available_set = set(available)
-        
-        print(f"Comparing sets: Expected {fallback_ids}, Got {available_set}")
-        assert fallback_ids == available_set
+
+        print(f"Available models ({len(available)}): {available}")
+
+        # All fallback models except those in HIDDEN_FROM_LIST must appear
+        expected_ids = {m["modelId"] for m in FALLBACK_MODELS} - set(HIDDEN_FROM_LIST)
+        print(f"Expected (excluding hidden {HIDDEN_FROM_LIST}): {expected_ids}")
+
+        missing = expected_ids - available_set
+        assert not missing, f"Fallback models missing from available list: {missing}"
+
+        # Hidden models must NOT appear in the listing
+        unexpected = set(HIDDEN_FROM_LIST) & available_set
+        assert not unexpected, f"Hidden models must not appear in available list: {unexpected}"
 
 
 # ==================================================================================================
@@ -697,7 +705,7 @@ class TestFallbackModelsIntegration:
 class TestWebSearchConfig:
     """Tests for WebSearch configuration (WEB_SEARCH_ENABLED)."""
     
-    def test_web_search_enabled_default_true(self, monkeypatch):
+    def test_web_search_enabled_default_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies WEB_SEARCH_ENABLED defaults to true.
         Purpose: Ensure auto-injection is enabled by default.
@@ -713,7 +721,7 @@ class TestWebSearchConfig:
         print(f"Comparing WEB_SEARCH_ENABLED: Expected True, Got {config_module.WEB_SEARCH_ENABLED}")
         assert config_module.WEB_SEARCH_ENABLED is True
     
-    def test_web_search_enabled_false(self, monkeypatch):
+    def test_web_search_enabled_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies WEB_SEARCH_ENABLED=false disables auto-injection.
         Purpose: Ensure users can disable auto-injection.
@@ -729,7 +737,7 @@ class TestWebSearchConfig:
         print(f"Comparing WEB_SEARCH_ENABLED: Expected False, Got {config_module.WEB_SEARCH_ENABLED}")
         assert config_module.WEB_SEARCH_ENABLED is False
     
-    def test_web_search_enabled_true(self, monkeypatch):
+    def test_web_search_enabled_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies WEB_SEARCH_ENABLED=true enables auto-injection.
         Purpose: Ensure explicit true value works.
@@ -745,7 +753,7 @@ class TestWebSearchConfig:
         print(f"Comparing WEB_SEARCH_ENABLED: Expected True, Got {config_module.WEB_SEARCH_ENABLED}")
         assert config_module.WEB_SEARCH_ENABLED is True
     
-    def test_web_search_enabled_numeric_values(self, monkeypatch):
+    def test_web_search_enabled_numeric_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies numeric values (1/0) work for WEB_SEARCH_ENABLED.
         Purpose: Ensure compatibility with numeric boolean values.
@@ -767,7 +775,7 @@ class TestWebSearchConfig:
         print(f"Comparing WEB_SEARCH_ENABLED: Expected False, Got {config_module.WEB_SEARCH_ENABLED}")
         assert config_module.WEB_SEARCH_ENABLED is False
     
-    def test_web_search_enabled_yes_value(self, monkeypatch):
+    def test_web_search_enabled_yes_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies WEB_SEARCH_ENABLED=yes enables auto-injection.
         Purpose: Ensure 'yes' value works.
@@ -783,7 +791,7 @@ class TestWebSearchConfig:
         print(f"Comparing WEB_SEARCH_ENABLED: Expected True, Got {config_module.WEB_SEARCH_ENABLED}")
         assert config_module.WEB_SEARCH_ENABLED is True
     
-    def test_web_search_enabled_case_insensitive(self, monkeypatch):
+    def test_web_search_enabled_case_insensitive(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies WEB_SEARCH_ENABLED is case-insensitive.
         Purpose: Ensure TRUE, True, true all work.
@@ -813,7 +821,7 @@ class TestWebSearchConfig:
 class TestAccountSystemConfig:
     """Tests for Account System configuration constants."""
     
-    def test_account_system_default_false(self):
+    def test_account_system_default_false(self) -> None:
         """
         What it does: Verifies ACCOUNT_SYSTEM defaults to false.
         Purpose: Ensure legacy mode is default (backward compatibility).
@@ -842,7 +850,7 @@ class TestAccountSystemConfig:
         import kiro.config as config_module
         reload(config_module)
     
-    def test_account_system_enabled(self, monkeypatch):
+    def test_account_system_enabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies ACCOUNT_SYSTEM=true enables account system.
         Purpose: Ensure account system can be enabled via environment variable.
@@ -858,7 +866,7 @@ class TestAccountSystemConfig:
         print(f"Comparing ACCOUNT_SYSTEM: Expected True, Got {config_module.ACCOUNT_SYSTEM}")
         assert config_module.ACCOUNT_SYSTEM is True
     
-    def test_accounts_config_file_default(self, monkeypatch):
+    def test_accounts_config_file_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies ACCOUNTS_CONFIG_FILE defaults to credentials.json.
         Purpose: Ensure default path for credentials configuration.
@@ -874,7 +882,7 @@ class TestAccountSystemConfig:
         print(f"Comparing ACCOUNTS_CONFIG_FILE: Expected 'credentials.json', Got '{config_module.ACCOUNTS_CONFIG_FILE}'")
         assert config_module.ACCOUNTS_CONFIG_FILE == "credentials.json"
     
-    def test_accounts_state_file_default(self, monkeypatch):
+    def test_accounts_state_file_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies ACCOUNTS_STATE_FILE defaults to state.json.
         Purpose: Ensure default path for runtime state file.
@@ -890,7 +898,7 @@ class TestAccountSystemConfig:
         print(f"Comparing ACCOUNTS_STATE_FILE: Expected 'state.json', Got '{config_module.ACCOUNTS_STATE_FILE}'")
         assert config_module.ACCOUNTS_STATE_FILE == "state.json"
     
-    def test_account_recovery_timeout_default(self, monkeypatch):
+    def test_account_recovery_timeout_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies ACCOUNT_RECOVERY_TIMEOUT defaults to 60 seconds.
         Purpose: Ensure base timeout for exponential backoff is 60s.
@@ -906,7 +914,7 @@ class TestAccountSystemConfig:
         print(f"Comparing ACCOUNT_RECOVERY_TIMEOUT: Expected 60, Got {config_module.ACCOUNT_RECOVERY_TIMEOUT}")
         assert config_module.ACCOUNT_RECOVERY_TIMEOUT == 60
     
-    def test_account_max_backoff_multiplier_default(self, monkeypatch):
+    def test_account_max_backoff_multiplier_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies ACCOUNT_MAX_BACKOFF_MULTIPLIER defaults to 1440.0.
         Purpose: Ensure maximum backoff cap is 1 day (60s * 1440 = 86400s).
@@ -922,7 +930,7 @@ class TestAccountSystemConfig:
         print(f"Comparing ACCOUNT_MAX_BACKOFF_MULTIPLIER: Expected 1440.0, Got {config_module.ACCOUNT_MAX_BACKOFF_MULTIPLIER}")
         assert config_module.ACCOUNT_MAX_BACKOFF_MULTIPLIER == 1440.0
     
-    def test_account_probabilistic_retry_chance_default(self, monkeypatch):
+    def test_account_probabilistic_retry_chance_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies ACCOUNT_PROBABILISTIC_RETRY_CHANCE defaults to 0.1.
         Purpose: Ensure 10% chance for probabilistic retry of broken accounts.
@@ -938,7 +946,7 @@ class TestAccountSystemConfig:
         print(f"Comparing ACCOUNT_PROBABILISTIC_RETRY_CHANCE: Expected 0.1, Got {config_module.ACCOUNT_PROBABILISTIC_RETRY_CHANCE}")
         assert config_module.ACCOUNT_PROBABILISTIC_RETRY_CHANCE == 0.1
     
-    def test_account_cache_ttl_default(self, monkeypatch):
+    def test_account_cache_ttl_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies ACCOUNT_CACHE_TTL defaults to 43200 seconds (12 hours).
         Purpose: Ensure model cache TTL is 12 hours by default.
@@ -954,7 +962,7 @@ class TestAccountSystemConfig:
         print(f"Comparing ACCOUNT_CACHE_TTL: Expected 43200, Got {config_module.ACCOUNT_CACHE_TTL}")
         assert config_module.ACCOUNT_CACHE_TTL == 43200
     
-    def test_state_save_interval_seconds_default(self, monkeypatch):
+    def test_state_save_interval_seconds_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
         What it does: Verifies STATE_SAVE_INTERVAL_SECONDS defaults to 10 seconds.
         Purpose: Ensure periodic state saving happens every 10 seconds.
@@ -969,3 +977,148 @@ class TestAccountSystemConfig:
         
         print(f"Comparing STATE_SAVE_INTERVAL_SECONDS: Expected 10, Got {config_module.STATE_SAVE_INTERVAL_SECONDS}")
         assert config_module.STATE_SAVE_INTERVAL_SECONDS == 10
+
+
+class TestGetRawEnvValue:
+    """Tests for _get_raw_env_value — file I/O, regex parsing, and exception paths."""
+
+    def _call(self, var_name: str, path: str) -> Optional[str]:
+        import kiro.config as config_module
+        return config_module._get_raw_env_value(var_name, path)
+
+    def test_returns_none_when_file_does_not_exist(self, tmp_path: Path) -> None:
+        """
+        What it does: Returns None when the .env file is absent.
+        Purpose: No crash on fresh installs that have no .env file.
+        """
+        missing = str(tmp_path / "nonexistent.env")
+        result = self._call("MY_VAR", missing)
+        assert result is None
+
+    def test_returns_value_unquoted(self, tmp_path: Path) -> None:
+        """
+        What it does: Parses VAR=value (no quotes).
+        Purpose: Plain unquoted values are the most common format.
+        """
+        env_file = tmp_path / ".env"
+        env_file.write_text("MY_VAR=hello\n", encoding="utf-8")
+        assert self._call("MY_VAR", str(env_file)) == "hello"
+
+    def test_returns_value_double_quoted(self, tmp_path: Path) -> None:
+        """
+        What it does: Parses VAR="value" (double quotes).
+        Purpose: Quoted values with spaces need quote stripping.
+        """
+        env_file = tmp_path / ".env"
+        env_file.write_text('MY_VAR="hello world"\n', encoding="utf-8")
+        assert self._call("MY_VAR", str(env_file)) == "hello world"
+
+    def test_returns_value_single_quoted(self, tmp_path: Path) -> None:
+        """
+        What it does: Parses VAR='value' (single quotes).
+        Purpose: Single-quoted values must also have quotes stripped.
+        """
+        env_file = tmp_path / ".env"
+        env_file.write_text("MY_VAR='hello world'\n", encoding="utf-8")
+        assert self._call("MY_VAR", str(env_file)) == "hello world"
+
+    def test_returns_raw_windows_path_without_escape_processing(self, tmp_path: Path) -> None:
+        """
+        What it does: Returns backslash path exactly as written.
+        Purpose: The whole reason this function exists — dotenv libraries
+        process \\n as newline; we must NOT do that for Windows paths.
+        """
+        env_file = tmp_path / ".env"
+        env_file.write_text('KIRO_CREDS_FILE="D:\\\\Projects\\\\file.json"\n', encoding="utf-8")
+        result = self._call("KIRO_CREDS_FILE", str(env_file))
+        assert result == "D:\\\\Projects\\\\file.json"
+
+    def test_returns_none_when_variable_not_present(self, tmp_path: Path) -> None:
+        """
+        What it does: Returns None when the variable is absent from the file.
+        Purpose: Caller falls back to os.getenv when file does not contain the var.
+        """
+        env_file = tmp_path / ".env"
+        env_file.write_text("OTHER_VAR=something\n", encoding="utf-8")
+        assert self._call("MY_VAR", str(env_file)) is None
+
+    def test_skips_comment_lines(self, tmp_path: Path) -> None:
+        """
+        What it does: Lines starting with '#' are ignored.
+        Purpose: Comments must not be parsed as variable assignments.
+        """
+        env_file = tmp_path / ".env"
+        env_file.write_text("# MY_VAR=should_be_ignored\nMY_VAR=real_value\n", encoding="utf-8")
+        assert self._call("MY_VAR", str(env_file)) == "real_value"
+
+    def test_returns_first_match_when_variable_appears_multiple_times(self, tmp_path: Path) -> None:
+        """
+        What it does: Returns the first occurrence when a variable is duplicated.
+        Purpose: Consistent behaviour — first-wins is the dotenv convention.
+        """
+        env_file = tmp_path / ".env"
+        env_file.write_text("MY_VAR=first\nMY_VAR=second\n", encoding="utf-8")
+        assert self._call("MY_VAR", str(env_file)) == "first"
+
+    def test_returns_none_on_unicode_decode_error(self, tmp_path: Path) -> None:
+        """
+        What it does: Returns None when the file is not UTF-8.
+        Purpose: Non-UTF-8 files must not crash; the caller falls back to os.getenv.
+        """
+        env_file = tmp_path / ".env"
+        # Write raw bytes that are invalid UTF-8
+        env_file.write_bytes(b"MY_VAR=\xff\xfe\n")
+        result = self._call("MY_VAR", str(env_file))
+        assert result is None
+
+
+class TestIntCoercedConfigValues:
+    """Tests that verify ValueError is raised at module import when numeric env vars
+    receive non-numeric strings.  This documents intentional crash-at-startup
+    behaviour — unrecognised values must not silently default to anything."""
+
+    def _reload_with_env(self, env_overrides: Dict[str, str]) -> None:
+        import importlib
+        import kiro.config as config_module
+        with patch.dict(os.environ, env_overrides):
+            importlib.reload(config_module)
+
+    def test_server_port_non_numeric_raises(self) -> None:
+        """
+        What it does: Verifies SERVER_PORT="abc" raises ValueError on import.
+        Purpose: The server must not silently start on the wrong port.
+        """
+        with pytest.raises(ValueError):
+            self._reload_with_env({"SERVER_PORT": "abc"})
+
+    def test_tool_description_max_length_non_numeric_raises(self) -> None:
+        """
+        What it does: Verifies TOOL_DESCRIPTION_MAX_LENGTH="abc" raises ValueError.
+        Purpose: Bad config must be caught at startup, not at runtime.
+        """
+        with pytest.raises(ValueError):
+            self._reload_with_env({"TOOL_DESCRIPTION_MAX_LENGTH": "abc"})
+
+    def test_first_token_timeout_non_numeric_raises(self) -> None:
+        """
+        What it does: Verifies FIRST_TOKEN_TIMEOUT="abc" raises ValueError.
+        Purpose: A non-numeric timeout would disable the safeguard silently.
+        """
+        with pytest.raises(ValueError):
+            self._reload_with_env({"FIRST_TOKEN_TIMEOUT": "abc"})
+
+    def test_streaming_read_timeout_non_numeric_raises(self) -> None:
+        """
+        What it does: Verifies STREAMING_READ_TIMEOUT="abc" raises ValueError.
+        Purpose: An invalid streaming timeout must fail fast rather than hang forever.
+        """
+        with pytest.raises(ValueError):
+            self._reload_with_env({"STREAMING_READ_TIMEOUT": "abc"})
+
+    def test_first_token_max_retries_non_numeric_raises(self) -> None:
+        """
+        What it does: Verifies FIRST_TOKEN_MAX_RETRIES="abc" raises ValueError.
+        Purpose: A non-integer retry count would disable retry logic silently.
+        """
+        with pytest.raises(ValueError):
+            self._reload_with_env({"FIRST_TOKEN_MAX_RETRIES": "abc"})
