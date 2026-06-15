@@ -402,9 +402,8 @@ render_and_install_service() {
 load_service() {
     if [[ "${UNAME_S:-$(uname -s)}" == "Darwin" ]]; then
         launchctl bootstrap "gui/$(id -u)" \
-            "${HOME}/Library/LaunchAgents/com.jwadow.kiro-gateway.plist" || {
-            log_error "launchctl bootstrap failed."
-            exit 1
+            "${HOME}/Library/LaunchAgents/com.jwadow.kiro-gateway.plist" 2>/dev/null || {
+            log_warn "launchctl bootstrap skipped (run 'kiro-gateway start' to register the service)."
         }
     else
         systemctl --user daemon-reload || {
