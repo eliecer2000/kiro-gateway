@@ -81,7 +81,9 @@ is_macos() {
 cmd_start() {
     guard_installed
     if is_macos; then
-        launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" >&2
+        # Try modern bootstrap first; fall back to legacy `load` (works outside GUI context).
+        launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" 2>/dev/null || \
+            launchctl load -w "$(plumbed_plist)" >&2
     else
         systemctl --user start kiro-gateway >&2
     fi
@@ -177,7 +179,8 @@ cmd_update() {
         rm -rf "${INSTALL_DIR}/app.new"
         if is_macos; then
             launchctl bootout "gui/$(id -u)/com.jwadow.kiro-gateway" 2>/dev/null || true
-            launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" >&2
+            launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" 2>/dev/null || \
+                launchctl load -w "$(plumbed_plist)" >&2
         else
             systemctl --user daemon-reload >&2
         fi
@@ -203,7 +206,8 @@ cmd_update() {
     # Reload service.
     if is_macos; then
         launchctl bootout "gui/$(id -u)/com.jwadow.kiro-gateway" 2>/dev/null || true
-        launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" >&2
+        launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" 2>/dev/null || \
+            launchctl load -w "$(plumbed_plist)" >&2
     else
         systemctl --user daemon-reload >&2
     fi
