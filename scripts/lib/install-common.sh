@@ -357,7 +357,8 @@ venv_bootstrap_or_refresh() {
     local new_hash
     new_hash="$(compute_requirements_hash)"
     if [[ -f "$req_hash_file" ]] && [[ "$(cat "$req_hash_file")" == "$new_hash" ]] \
-        && [[ -d "${INSTALL_DIR}/venv" ]]; then
+        && [[ -d "${INSTALL_DIR}/venv" ]] \
+        && [[ -f "${INSTALL_DIR}/venv/bin/pip" ]]; then
         return
     fi
     rm -rf "${INSTALL_DIR}/venv"
