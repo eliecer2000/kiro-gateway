@@ -4,9 +4,42 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib/install-common.sh
-source "${SCRIPT_DIR}/lib/install-common.sh"
+# Bootstrap: when run via `curl ... | bash`, BASH_SOURCE[0] is empty
+# (verified empirically on macOS bash 3.2 and bash 5). In that case we
+# can't find a sibling `lib/install-common.sh`, so fetch it from the
+# same GitHub origin into a temp dir and source it from there. When run
+# from a local checkout (`./scripts/install.sh`), BASH_SOURCE[0] points
+# to a real file on disk and we source the sibling — no network needed.
+KIRO_REPO="${KIRO_REPO:-eliecer2000/kiro-gateway}"
+KIRO_BRANCH="${KIRO_BRANCH:-main}"
+INSTALL_COMMON_URL="https://raw.githubusercontent.com/${KIRO_REPO}/${KIRO_BRANCH}/scripts/lib/install-common.sh"
+
+SELF="${BASH_SOURCE[0]:-}"
+if [[ -n "$SELF" ]] && [[ -f "$SELF" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+    # shellcheck source=scripts/lib/install-common.sh
+    source "${SCRIPT_DIR}/lib/install-common.sh"
+else
+    # stdin bootstrap (curl|bash). Fetch the lib to a temp dir and
+    # source it from there. Clean up the temp dir on exit.
+    if [[ -z "${KIRO_INSTALL_TMPDIR:-}" ]]; then
+        KIRO_INSTALL_TMPDIR="$(mktemp -d -t kiro-install.XXXXXX)"
+        trap 'rm -rf "${KIRO_INSTALL_TMPDIR:-}"' EXIT
+    fi
+    INSTALL_COMMON_SH="${KIRO_INSTALL_TMPDIR}/install-common.sh"
+    if ! curl -fsSL --proto '=https' --tlsv1.2 \
+            "$INSTALL_COMMON_URL" -o "$INSTALL_COMMON_SH" 2>/tmp/kiro-curl-err; then
+        echo "error: failed to fetch install library from ${INSTALL_COMMON_URL}" >&2
+        echo "       curl said: $(cat /tmp/kiro-curl-err 2>/dev/null || echo 'unknown')" >&2
+        echo "       set KIRO_REPO and KIRO_BRANCH to a reachable fork, or" >&2
+        echo "       download scripts/lib/install-common.sh manually" >&2
+        rm -f /tmp/kiro-curl-err
+        exit 1
+    fi
+    rm -f /tmp/kiro-curl-err
+    # shellcheck source=scripts/lib/install-common.sh
+    source "$INSTALL_COMMON_SH"
+fi
 
 install_trap
 
