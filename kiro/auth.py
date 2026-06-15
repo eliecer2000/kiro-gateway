@@ -68,11 +68,11 @@ SQLITE_REGISTRATION_KEYS = [
 class AuthType(Enum):
     """
     Type of authentication mechanism.
-    
+
     KIRO_DESKTOP: Kiro IDE credentials (default)
         - Uses https://prod.{region}.auth.desktop.kiro.dev/refreshToken
         - JSON body: {"refreshToken": "..."}
-    
+
     AWS_SSO_OIDC: AWS SSO credentials from kiro-cli
         - Uses https://oidc.{region}.amazonaws.com/token
         - Form body: grant_type=refresh_token&client_id=...&client_secret=...&refresh_token=...
@@ -80,6 +80,61 @@ class AuthType(Enum):
     """
     KIRO_DESKTOP = "kiro_desktop"
     AWS_SSO_OIDC = "aws_sso_oidc"
+
+
+def _try_save_to_key_static(
+    cursor: sqlite3.Cursor,
+    key: str,
+    *,
+    access_token: Optional[str],
+    refresh_token: Optional[str],
+    expires_at_iso: Optional[str],
+    sso_region: Optional[str],
+    region: str,
+    scopes: Optional[list],
+) -> bool:
+    """
+    Module-level (no `self`) variant of KiroAuthManager._try_save_to_key.
+
+    Used by the off-loop closure in _save_credentials_to_sqlite, which must not
+    touch self from the worker thread. Mirrors the original instance method's
+    read-merge-write semantics (Issue #131 fix): update only the four known
+    fields, preserve every other field the row already contained.
+    """
+    try:
+        cursor.execute("SELECT value FROM auth_kv WHERE key = ?", (key,))
+        row = cursor.fetchone()
+
+        if not row:
+            return False
+
+        try:
+            existing_data = json.loads(row[0])
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse JSON for key {key}, skipping: {e}")
+            return False
+
+        # Merge: update ONLY our fields, preserve EVERYTHING else.
+        existing_data["access_token"] = access_token
+        existing_data["refresh_token"] = refresh_token
+        existing_data["expires_at"] = expires_at_iso
+        existing_data["region"] = sso_region or region
+
+        if scopes:
+            existing_data["scopes"] = scopes
+
+        token_json = json.dumps(existing_data)
+
+        cursor.execute(
+            "UPDATE auth_kv SET value = ? WHERE key = ?",
+            (token_json, key),
+        )
+
+        return cursor.rowcount > 0
+
+    except Exception as e:
+        logger.debug(f"Failed to save to key {key}: {e}")
+        return False
 
 
 class KiroAuthManager:
@@ -175,6 +230,10 @@ class KiroAuthManager:
         self._access_token: Optional[str] = None
         self._expires_at: Optional[datetime] = None
         self._lock = asyncio.Lock()
+        # PR #2 (perf-async-improvements): serialize concurrent off-loop save
+        # operations (file + sqlite) on the same auth object. The lock is held
+        # only across the to_thread call, never across any HTTP await.
+        self._save_lock = asyncio.Lock()
         
         # Auth type will be determined after loading credentials
         self._auth_type: AuthType = AuthType.KIRO_DESKTOP
@@ -493,150 +552,176 @@ class KiroAuthManager:
         except Exception as e:
             logger.error(f"Error loading enterprise device registration: {e}")
     
-    def _save_credentials_to_file(self) -> None:
+    async def _save_credentials_to_file(self) -> None:
         """
         Saves updated credentials to a JSON file.
-        
-        Updates the existing file while preserving other fields.
+
+        Updates the existing file while preserving other fields. The read-merge-write
+        body runs in a worker thread via asyncio.to_thread so the event loop is
+        not blocked (PR #2 of perf-async-improvements). Read-modify-write must be
+        atomic w.r.t. the file, so it is one closure inside the thread.
         """
         if not self._creds_file:
             return
-        
-        try:
-            path = Path(self._creds_file).expanduser()
-            
-            # Read existing data
-            existing_data = {}
-            if path.exists():
-                with open(path, 'r', encoding='utf-8') as f:
-                    existing_data = json.load(f)
-            
-            # Update data
-            existing_data['accessToken'] = self._access_token
-            existing_data['refreshToken'] = self._refresh_token
-            if self._expires_at:
-                existing_data['expiresAt'] = self._expires_at.isoformat()
-            if self._profile_arn:
-                existing_data['profileArn'] = self._profile_arn
-            
-            # Save
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(existing_data, f, indent=2, ensure_ascii=False)
-            
-            logger.debug(f"Credentials saved to {self._creds_file}")
-            
-        except Exception as e:
-            logger.error(f"Error saving credentials: {e}")
+
+        # Snapshot the fields we need so the closure does not access self from
+        # the worker thread.
+        creds_file = self._creds_file
+        access_token = self._access_token
+        refresh_token = self._refresh_token
+        expires_at_iso = self._expires_at.isoformat() if self._expires_at else None
+        profile_arn = self._profile_arn
+
+        def _write() -> None:
+            try:
+                path = Path(creds_file).expanduser()
+
+                # Read existing data
+                existing_data = {}
+                if path.exists():
+                    with open(path, 'r', encoding='utf-8') as f:
+                        existing_data = json.load(f)
+
+                # Update data
+                existing_data['accessToken'] = access_token
+                existing_data['refreshToken'] = refresh_token
+                if expires_at_iso:
+                    existing_data['expiresAt'] = expires_at_iso
+                if profile_arn:
+                    existing_data['profileArn'] = profile_arn
+
+                # Save
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump(existing_data, f, indent=2, ensure_ascii=False)
+
+                logger.debug(f"Credentials saved to {creds_file}")
+
+            except Exception as e:
+                logger.error(f"Error saving credentials: {e}")
+
+        # Serialize concurrent file writes; the lock is held only across
+        # to_thread, never across any HTTP await.
+        async with self._save_lock:
+            await asyncio.to_thread(_write)
     
-    def _save_credentials_to_sqlite(self) -> None:
+    async def _save_credentials_to_sqlite(self) -> None:
         """
         Saves updated credentials back to SQLite database.
-        
+
         Strategy: Read-Merge-Write (Issue #131 fix)
         1. Read existing JSON from SQLite
         2. Merge only updated fields (access_token, refresh_token, expires_at)
         3. Preserve all unknown fields (startUrl, provider, registrationExpiresAt, etc.)
         4. Write back merged JSON
-        
+
         This ensures compatibility with kiro-cli and future schema changes.
         Unknown fields from kiro-cli are preserved, preventing data loss.
-        
+
         Respects SQLITE_READONLY flag - when enabled, skips write-back entirely.
+
+        The sqlite3 connect + read-merge-write + commit runs in a worker thread
+        via asyncio.to_thread (PR #2 of perf-async-improvements). The cheap
+        SQLITE_READONLY and self._sqlite_db checks stay on the loop.
         """
         if not self._sqlite_db:
             return
-        
-        # Check read-only mode
+
+        # Check read-only mode (cheap in-memory check, stays on the loop)
         if SQLITE_READONLY:
             logger.debug("SQLite write-back disabled (SQLITE_READONLY=true)")
             return
-        
-        try:
-            path = Path(self._sqlite_db).expanduser()
-            if not path.exists():
-                logger.warning(f"SQLite database not found for writing: {self._sqlite_db}")
-                return
-            
-            # Use timeout to avoid blocking if database is locked
-            conn = sqlite3.connect(str(path), timeout=5.0)
-            cursor = conn.cursor()
-            
-            # Try to save to the known key first (if we have it)
-            if self._sqlite_token_key:
-                if self._try_save_to_key(cursor, self._sqlite_token_key):
-                    conn.commit()
-                    conn.close()
-                    logger.debug(f"Credentials saved to SQLite key: {self._sqlite_token_key} (merged)")
+
+        # Snapshot the fields we need so the closure does not access self from
+        # the worker thread.
+        sqlite_db = self._sqlite_db
+        sqlite_token_key = self._sqlite_token_key
+        access_token = self._access_token
+        refresh_token = self._refresh_token
+        expires_at_iso = self._expires_at.isoformat() if self._expires_at else None
+        sso_region = self._sso_region
+        region = self._region
+        scopes = self._scopes
+
+        def _write() -> None:
+            try:
+                path = Path(sqlite_db).expanduser()
+                if not path.exists():
+                    logger.warning(f"SQLite database not found for writing: {sqlite_db}")
                     return
-                else:
-                    logger.warning(f"Failed to save to primary key: {self._sqlite_token_key}, trying fallback")
-            
-            # Fallback: try all keys (for edge cases where source key is unknown or deleted)
-            for key in SQLITE_TOKEN_KEYS:
-                if self._try_save_to_key(cursor, key):
-                    conn.commit()
-                    conn.close()
-                    logger.debug(f"Credentials saved to SQLite key: {key} (fallback, merged)")
-                    return
-            
-            # If we get here, no keys were updated
-            conn.close()
-            logger.warning(f"Failed to save credentials to SQLite: no matching keys found")
-            
-        except sqlite3.Error as e:
-            logger.error(f"SQLite error saving credentials: {e}")
-        except Exception as e:
-            logger.error(f"Error saving credentials to SQLite: {e}")
+
+                # Use timeout to avoid blocking if database is locked
+                conn = sqlite3.connect(str(path), timeout=5.0)
+                cursor = conn.cursor()
+
+                # Try to save to the known key first (if we have it)
+                if sqlite_token_key:
+                    if _try_save_to_key_static(
+                        cursor,
+                        sqlite_token_key,
+                        access_token=access_token,
+                        refresh_token=refresh_token,
+                        expires_at_iso=expires_at_iso,
+                        sso_region=sso_region,
+                        region=region,
+                        scopes=scopes,
+                    ):
+                        conn.commit()
+                        conn.close()
+                        logger.debug(f"Credentials saved to SQLite key: {sqlite_token_key} (merged)")
+                        return
+                    else:
+                        logger.warning(f"Failed to save to primary key: {sqlite_token_key}, trying fallback")
+
+                # Fallback: try all keys (for edge cases where source key is unknown or deleted)
+                for key in SQLITE_TOKEN_KEYS:
+                    if _try_save_to_key_static(
+                        cursor,
+                        key,
+                        access_token=access_token,
+                        refresh_token=refresh_token,
+                        expires_at_iso=expires_at_iso,
+                        sso_region=sso_region,
+                        region=region,
+                        scopes=scopes,
+                    ):
+                        conn.commit()
+                        conn.close()
+                        logger.debug(f"Credentials saved to SQLite key: {key} (fallback, merged)")
+                        return
+
+                # If we get here, no keys were updated
+                conn.close()
+                logger.warning(f"Failed to save credentials to SQLite: no matching keys found")
+
+            except sqlite3.Error as e:
+                logger.error(f"SQLite error saving credentials: {e}")
+            except Exception as e:
+                logger.error(f"Error saving credentials to SQLite: {e}")
+
+        # Serialize concurrent sqlite writes; the lock is held only across
+        # to_thread, never across any HTTP await.
+        async with self._save_lock:
+            await asyncio.to_thread(_write)
     
     def _try_save_to_key(self, cursor: sqlite3.Cursor, key: str) -> bool:
         """
         Attempts to save credentials to a specific SQLite key using read-merge-write.
-        
-        Args:
-            cursor: SQLite cursor
-            key: SQLite key to save to
-        
-        Returns:
-            True if save was successful, False otherwise
+
+        Thin wrapper around the module-level `_try_save_to_key_static` so the
+        instance method and the off-loop closure share one read-merge-write
+        implementation. Kept as an instance method for backwards compatibility
+        with any caller that passes `self` implicitly.
         """
-        try:
-            # Read existing data
-            cursor.execute("SELECT value FROM auth_kv WHERE key = ?", (key,))
-            row = cursor.fetchone()
-            
-            if not row:
-                return False
-            
-            # Parse existing JSON
-            try:
-                existing_data = json.loads(row[0])
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse JSON for key {key}, skipping: {e}")
-                return False
-            
-            # Merge: update ONLY our fields, preserve EVERYTHING else
-            existing_data["access_token"] = self._access_token
-            existing_data["refresh_token"] = self._refresh_token
-            existing_data["expires_at"] = self._expires_at.isoformat() if self._expires_at else None
-            existing_data["region"] = self._sso_region or self._region
-            
-            # Update scopes if we have them
-            if self._scopes:
-                existing_data["scopes"] = self._scopes
-            
-            token_json = json.dumps(existing_data)
-            
-            # Write back merged data
-            cursor.execute(
-                "UPDATE auth_kv SET value = ? WHERE key = ?",
-                (token_json, key)
-            )
-            
-            return cursor.rowcount > 0
-            
-        except Exception as e:
-            logger.debug(f"Failed to save to key {key}: {e}")
-            return False
+        return _try_save_to_key_static(
+            cursor,
+            key,
+            access_token=self._access_token,
+            refresh_token=self._refresh_token,
+            expires_at_iso=self._expires_at.isoformat() if self._expires_at else None,
+            sso_region=self._sso_region,
+            region=self._region,
+            scopes=self._scopes,
+        )
     
     def is_token_expiring_soon(self) -> bool:
         """
@@ -751,11 +836,12 @@ class KiroAuthManager:
         
         logger.info(f"Token refreshed via Kiro Desktop Auth, expires: {self._expires_at.isoformat()}")
         
-        # Save to file or SQLite depending on configuration
+        # Save to file or SQLite depending on configuration.
+        # Both are async (PR #2) — the actual I/O runs in a worker thread.
         if self._sqlite_db:
-            self._save_credentials_to_sqlite()
+            await self._save_credentials_to_sqlite()
         else:
-            self._save_credentials_to_file()
+            await self._save_credentials_to_file()
     
     async def _refresh_token_aws_sso_oidc(self) -> None:
         """
@@ -888,11 +974,12 @@ class KiroAuthManager:
         
         logger.info(f"Token refreshed via AWS SSO OIDC, expires: {self._expires_at.isoformat()}")
         
-        # Save to file or SQLite depending on configuration
+        # Save to file or SQLite depending on configuration.
+        # Both are async (PR #2) — the actual I/O runs in a worker thread.
         if self._sqlite_db:
-            self._save_credentials_to_sqlite()
+            await self._save_credentials_to_sqlite()
         else:
-            self._save_credentials_to_file()
+            await self._save_credentials_to_file()
     
     async def get_access_token(self) -> str:
         """
