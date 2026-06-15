@@ -2051,7 +2051,8 @@ class TestKiroAuthManagerSaveCredentialsToSqlite:
     causing stale tokens to be reloaded after 1-2 hours.
     """
     
-    def test_save_credentials_to_sqlite_writes_token_data(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_save_credentials_to_sqlite_writes_token_data(self, tmp_path):
         """
         What it does: Verifies that _save_credentials_to_sqlite writes token data.
         Purpose: Ensure tokens are persisted to SQLite after refresh.
@@ -2094,7 +2095,7 @@ class TestKiroAuthManagerSaveCredentialsToSqlite:
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         
         print("Action: Calling _save_credentials_to_sqlite()...")
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Reading SQLite to check saved data...")
         conn = sqlite3.connect(str(db_file))
@@ -2112,7 +2113,8 @@ class TestKiroAuthManagerSaveCredentialsToSqlite:
         print(f"Comparing refresh_token: Expected 'new_refresh_token', Got '{saved_data['refresh_token']}'")
         assert saved_data['refresh_token'] == "new_refresh_token"
     
-    def test_save_credentials_to_sqlite_handles_missing_database(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_save_credentials_to_sqlite_handles_missing_database(self, tmp_path):
         """
         What it does: Verifies handling of missing SQLite file.
         Purpose: Ensure application doesn't crash when database is missing.
@@ -2128,12 +2130,13 @@ class TestKiroAuthManagerSaveCredentialsToSqlite:
         
         print("Action: Calling _save_credentials_to_sqlite() with missing database...")
         # Should not raise exception
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: No exception raised...")
         assert True
     
-    def test_save_credentials_to_sqlite_returns_early_when_no_sqlite_db(self):
+    @pytest.mark.asyncio
+    async def test_save_credentials_to_sqlite_returns_early_when_no_sqlite_db(self):
         """
         What it does: Verifies early return when sqlite_db is None.
         Purpose: Ensure method is no-op when SQLite is not configured.
@@ -2145,7 +2148,7 @@ class TestKiroAuthManagerSaveCredentialsToSqlite:
         
         print("Action: Calling _save_credentials_to_sqlite()...")
         # Should return early without doing anything
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: No exception raised...")
         assert True
@@ -2408,7 +2411,8 @@ class TestKiroAuthManagerSocialLogin:
         print(f"Comparing _sqlite_token_key: Expected 'codewhisperer:odic:token', Got '{manager._sqlite_token_key}'")
         assert manager._sqlite_token_key == "codewhisperer:odic:token"
     
-    def test_save_credentials_to_sqlite_uses_source_key(self, temp_sqlite_db_social):
+    @pytest.mark.asyncio
+    async def test_save_credentials_to_sqlite_uses_source_key(self, temp_sqlite_db_social):
         """
         What it does: Verifies tokens are saved back to the same key they were loaded from.
         Purpose: Ensure social login tokens go to kirocli:social:token, not OIDC keys.
@@ -2428,7 +2432,7 @@ class TestKiroAuthManagerSocialLogin:
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         
         print("Action: Calling _save_credentials_to_sqlite()...")
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Reading SQLite to check saved data...")
         conn = sqlite3.connect(temp_sqlite_db_social)
@@ -2495,7 +2499,8 @@ class TestKiroAuthManagerSocialLogin:
             print(f"Comparing saved refresh_token: Expected 'new_refresh_token_xyz', Got '{saved_data['refresh_token']}'")
             assert saved_data['refresh_token'] == "new_refresh_token_xyz"
     
-    def test_save_credentials_fallback_when_source_key_unknown(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_save_credentials_fallback_when_source_key_unknown(self, tmp_path):
         """
         What it does: Verifies fallback behavior when _sqlite_token_key is None.
         Purpose: Ensure robustness when source key is not tracked.
@@ -2540,7 +2545,7 @@ class TestKiroAuthManagerSocialLogin:
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         
         print("Action: Calling _save_credentials_to_sqlite() with unknown source key...")
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Fallback should try all keys and update first match...")
         conn = sqlite3.connect(str(db_file))
@@ -2580,7 +2585,8 @@ class TestKiroAuthManagerSocialLogin:
         assert manager._client_id is None
         assert manager._client_secret is None
     
-    def test_provider_field_preserved_in_social_token(self, temp_sqlite_db_social):
+    @pytest.mark.asyncio
+    async def test_provider_field_preserved_in_social_token(self, temp_sqlite_db_social):
         """
         What it does: Verifies provider field is preserved when saving social tokens.
         Purpose: Ensure metadata like 'provider: google' is not lost.
@@ -2595,7 +2601,7 @@ class TestKiroAuthManagerSocialLogin:
         manager._access_token = "new_social_token"
         manager._refresh_token = "new_social_refresh"
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Reading SQLite to check provider field...")
         conn = sqlite3.connect(temp_sqlite_db_social)
@@ -2984,7 +2990,8 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
     when saving refreshed tokens, using Read-Merge-Write strategy.
     """
     
-    def test_save_preserves_unknown_fields_social_login(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_save_preserves_unknown_fields_social_login(self, tmp_path):
         """
         What it does: Verifies unknown fields are preserved for social login.
         Purpose: Ensure startUrl, provider, registrationExpiresAt are not lost (Issue #131 fix).
@@ -3031,7 +3038,7 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         
         print("Action: Calling _save_credentials_to_sqlite()...")
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Reading SQLite to check preserved fields...")
         conn = sqlite3.connect(str(db_file))
@@ -3063,7 +3070,8 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         print(f"Comparing customField: Expected 'custom_value', Got '{saved_data.get('customField')}'")
         assert saved_data.get('customField') == "custom_value"
     
-    def test_save_preserves_unknown_fields_oidc(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_save_preserves_unknown_fields_oidc(self, tmp_path):
         """
         What it does: Verifies unknown fields are preserved for AWS SSO OIDC.
         Purpose: Ensure future kiro-cli fields are not lost.
@@ -3116,7 +3124,7 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         manager._access_token = "new_oidc_access"
         manager._refresh_token = "new_oidc_refresh"
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Reading SQLite to check preserved fields...")
         conn = sqlite3.connect(str(db_file))
@@ -3134,7 +3142,8 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         print(f"Comparing unknownField2: Expected 'value2', Got '{saved_data.get('unknownField2')}'")
         assert saved_data.get('unknownField2') == "value2"
     
-    def test_save_updates_only_our_fields(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_save_updates_only_our_fields(self, tmp_path):
         """
         What it does: Verifies only gateway-managed fields are updated.
         Purpose: Ensure Read-Merge-Write updates only necessary fields.
@@ -3176,7 +3185,7 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         manager._refresh_token = "new_refresh"
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=2)
         manager._sso_region = "eu-central-1"
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Reading SQLite...")
         conn = sqlite3.connect(str(db_file))
@@ -3201,7 +3210,8 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         print(f"Comparing customField: Expected 'original_value', Got '{saved_data.get('customField')}'")
         assert saved_data.get('customField') == "original_value"
     
-    def test_save_with_sqlite_readonly_flag(self, tmp_path, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_save_with_sqlite_readonly_flag(self, tmp_path, monkeypatch):
         """
         What it does: Verifies SQLITE_READONLY flag prevents write-back.
         Purpose: Ensure read-only mode works correctly (Issue #131 feature).
@@ -3246,7 +3256,7 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         
         print("Action: Calling _save_credentials_to_sqlite() with READONLY=True...")
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Reading SQLite to check data NOT changed...")
         conn = sqlite3.connect(str(db_file))
@@ -3264,7 +3274,8 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         print(f"Comparing refresh_token: Expected 'original_refresh', Got '{saved_data['refresh_token']}'")
         assert saved_data['refresh_token'] == "original_refresh"
     
-    def test_save_fallback_when_primary_key_deleted(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_save_fallback_when_primary_key_deleted(self, tmp_path):
         """
         What it does: Verifies fallback mechanism when primary key is deleted.
         Purpose: Ensure tokens are saved to alternative key if primary is missing.
@@ -3329,7 +3340,7 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         manager._access_token = "fallback_access"
         manager._refresh_token = "fallback_refresh"
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Tokens saved to fallback key (kirocli:odic:token)...")
         conn = sqlite3.connect(str(db_file))
@@ -3347,7 +3358,8 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         print(f"Comparing refresh_token: Expected 'fallback_refresh', Got '{saved_data['refresh_token']}'")
         assert saved_data['refresh_token'] == "fallback_refresh"
     
-    def test_save_fallback_when_primary_key_is_none(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_save_fallback_when_primary_key_is_none(self, tmp_path):
         """
         What it does: Verifies fallback when _sqlite_token_key is None.
         Purpose: Ensure robustness when source key is not tracked.
@@ -3393,7 +3405,7 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         manager._access_token = "none_key_access"
         manager._refresh_token = "none_key_refresh"
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Fallback found and updated kirocli:social:token...")
         conn = sqlite3.connect(str(db_file))
@@ -3411,7 +3423,8 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         print(f"Comparing refresh_token: Expected 'none_key_refresh', Got '{saved_data['refresh_token']}'")
         assert saved_data['refresh_token'] == "none_key_refresh"
     
-    def test_save_handles_corrupted_json_gracefully(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_save_handles_corrupted_json_gracefully(self, tmp_path):
         """
         What it does: Verifies graceful handling of corrupted JSON during save.
         Purpose: Ensure _try_save_to_key skips corrupted key and fallback is used.
@@ -3478,7 +3491,7 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         manager._access_token = "corrupted_test_access"
         manager._refresh_token = "corrupted_test_refresh"
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Tokens saved to fallback key (skipped corrupted primary)...")
         conn = sqlite3.connect(str(db_file))
@@ -3493,7 +3506,8 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         print(f"Comparing access_token: Expected 'corrupted_test_access', Got '{saved_data['access_token']}'")
         assert saved_data['access_token'] == "corrupted_test_access"
     
-    def test_save_preserves_scopes_when_present(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_save_preserves_scopes_when_present(self, tmp_path):
         """
         What it does: Verifies scopes field is updated when present.
         Purpose: Ensure scopes are saved correctly for AWS SSO OIDC.
@@ -3545,7 +3559,7 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         manager._refresh_token = "new_refresh"
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         manager._scopes = ["new_scope_1", "new_scope_2", "new_scope_3"]
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Reading SQLite...")
         conn = sqlite3.connect(str(db_file))
@@ -3560,7 +3574,8 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         print(f"Comparing scopes: Expected ['new_scope_1', 'new_scope_2', 'new_scope_3'], Got {saved_data.get('scopes')}")
         assert saved_data.get('scopes') == ["new_scope_1", "new_scope_2", "new_scope_3"]
     
-    def test_save_updates_region_always(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_save_updates_region_always(self, tmp_path):
         """
         What it does: Verifies region field is always updated.
         Purpose: Ensure region reflects current SSO region.
@@ -3601,7 +3616,7 @@ class TestKiroAuthManagerSqliteWriteBackPreservation:
         manager._refresh_token = "new_refresh"
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         manager._sso_region = "eu-west-1"
-        manager._save_credentials_to_sqlite()
+        await manager._save_credentials_to_sqlite()
         
         print("Verification: Reading SQLite...")
         conn = sqlite3.connect(str(db_file))
