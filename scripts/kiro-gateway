@@ -81,12 +81,13 @@ is_macos() {
 cmd_start() {
     guard_installed
     if is_macos; then
-        # Try modern bootstrap, then legacy load; if both fail (e.g. no GUI session),
-        # fall back to launching the process directly in the background.
-        if launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" 2>/dev/null || \
-           launchctl load -w "$(plumbed_plist)" 2>/dev/null; then
+        # Register if not yet registered.
+        launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" 2>/dev/null || true
+        # Kick the service to actually start (RunAtLoad=false in plist).
+        if launchctl kickstart "gui/$(id -u)/com.jwadow.kiro-gateway" 2>/dev/null; then
             return 0
         fi
+        # launchctl unavailable (no GUI session) — launch directly.
         _start_direct
     else
         systemctl --user start kiro-gateway >&2
