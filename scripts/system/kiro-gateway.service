@@ -5,8 +5,9 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=${INSTALL_DIR}/state
-ExecStart=${INSTALL_DIR}/venv/bin/python main.py
+ExecStart=${INSTALL_DIR}/venv/bin/python ${INSTALL_DIR}/app/main.py
 Environment=KIRO_GATEWAY_HOME=${INSTALL_DIR}
+Environment=KIRO_ENV_FILE=${INSTALL_DIR}/state/.env
 Environment=ACCOUNTS_CONFIG_FILE=${INSTALL_DIR}/state/credentials.json
 Environment=ACCOUNTS_STATE_FILE=${INSTALL_DIR}/state/state.json
 StandardOutput=append:${INSTALL_DIR}/logs/kiro-gateway.log
