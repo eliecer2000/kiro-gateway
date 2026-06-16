@@ -31,11 +31,33 @@ from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from loguru import logger
 
-# Load environment variables
-load_dotenv()
+def _resolve_env_file() -> Path:
+    """
+    Resolve the configuration file used by the current runtime.
+
+    Installed services set ``KIRO_ENV_FILE`` explicitly. ``KIRO_GATEWAY_HOME``
+    is a compatibility fallback for older service definitions, while local
+    development continues to use ``.env`` in the current working directory.
+
+    Returns:
+        Path to the environment file that should be loaded.
+    """
+    explicit_path = os.getenv("KIRO_ENV_FILE")
+    if explicit_path:
+        return Path(explicit_path).expanduser()
+
+    gateway_home = os.getenv("KIRO_GATEWAY_HOME")
+    if gateway_home:
+        return Path(gateway_home).expanduser() / "state" / ".env"
+
+    return Path(".env")
 
 
-def _get_raw_env_value(var_name: str, env_file: str = ".env") -> Optional[str]:
+ENV_FILE: Path = _resolve_env_file()
+load_dotenv(dotenv_path=ENV_FILE)
+
+
+def _get_raw_env_value(var_name: str, env_file: str | Path | None = None) -> Optional[str]:
     """
     Read variable value from .env file without processing escape sequences.
     
@@ -45,12 +67,12 @@ def _get_raw_env_value(var_name: str, env_file: str = ".env") -> Optional[str]:
     
     Args:
         var_name: Environment variable name
-        env_file: Path to .env file (default ".env")
+        env_file: Optional path to an environment file. Defaults to ENV_FILE.
     
     Returns:
         Raw variable value or None if not found
     """
-    env_path = Path(env_file)
+    env_path = Path(env_file) if env_file is not None else ENV_FILE
     if not env_path.exists():
         return None
     
@@ -151,14 +173,14 @@ REGION: str = os.getenv("KIRO_REGION", "us-east-1")
 # Read directly from .env to avoid escape sequence issues on Windows
 # (e.g., \a in path D:\Projects\adolf is interpreted as bell character)
 _raw_creds_file = _get_raw_env_value("KIRO_CREDS_FILE") or os.getenv("KIRO_CREDS_FILE", "")
-# Normalize path for cross-platform compatibility
-KIRO_CREDS_FILE: str = str(Path(_raw_creds_file)) if _raw_creds_file else ""
+# Normalize and expand ~ so downstream code never has to deal with a literal ~
+KIRO_CREDS_FILE: str = str(Path(_raw_creds_file).expanduser()) if _raw_creds_file else ""
 
 # Path to kiro-cli SQLite database (optional, for AWS SSO OIDC authentication)
 # Default location: ~/.local/share/kiro-cli/data.sqlite3 (Linux/macOS)
 # or ~/.local/share/amazon-q/data.sqlite3 (amazon-q-developer-cli)
 _raw_cli_db_file = _get_raw_env_value("KIRO_CLI_DB_FILE") or os.getenv("KIRO_CLI_DB_FILE", "")
-KIRO_CLI_DB_FILE: str = str(Path(_raw_cli_db_file)) if _raw_cli_db_file else ""
+KIRO_CLI_DB_FILE: str = str(Path(_raw_cli_db_file).expanduser()) if _raw_cli_db_file else ""
 
 # Disable SQLite write-back (read-only mode)
 # When enabled, gateway will only read from kiro-cli database without modifying it.

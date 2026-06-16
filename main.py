@@ -240,20 +240,37 @@ def validate_configuration() -> None:
     has_refresh_token = bool(REFRESH_TOKEN)
     has_creds_file = bool(KIRO_CREDS_FILE)
     has_cli_db = bool(KIRO_CLI_DB_FILE)
-    
+
+    logger.debug(
+        f"validate_configuration: env_file={env_file}, "
+        f"REFRESH_TOKEN_set={has_refresh_token}, "
+        f"KIRO_CREDS_FILE={KIRO_CREDS_FILE!r}, "
+        f"KIRO_CLI_DB_FILE={KIRO_CLI_DB_FILE!r}"
+    )
+
     # Check if creds file actually exists
     if KIRO_CREDS_FILE:
         creds_path = Path(KIRO_CREDS_FILE).expanduser()
         if not creds_path.exists():
             has_creds_file = False
-            logger.warning(f"KIRO_CREDS_FILE not found: {KIRO_CREDS_FILE}")
-    
+            logger.warning(
+                f"KIRO_CREDS_FILE not found: {KIRO_CREDS_FILE} "
+                f"(resolved: {creds_path})"
+            )
+        else:
+            logger.debug(f"KIRO_CREDS_FILE resolves to existing file: {creds_path}")
+
     # Check if CLI database file actually exists
     if KIRO_CLI_DB_FILE:
         cli_db_path = Path(KIRO_CLI_DB_FILE).expanduser()
         if not cli_db_path.exists():
             has_cli_db = False
-            logger.warning(f"KIRO_CLI_DB_FILE not found: {KIRO_CLI_DB_FILE}")
+            logger.warning(
+                f"KIRO_CLI_DB_FILE not found: {KIRO_CLI_DB_FILE} "
+                f"(resolved: {cli_db_path})"
+            )
+        else:
+            logger.debug(f"KIRO_CLI_DB_FILE resolves to existing file: {cli_db_path}")
     
     # If no credentials found, show helpful error
     if not has_refresh_token and not has_creds_file and not has_cli_db:
@@ -481,8 +498,12 @@ async def lifespan(app: FastAPI):
     all_accounts = list(app.state.account_manager._accounts.keys())
     
     if not all_accounts:
-        logger.error("No accounts configured in credentials.json")
-        raise RuntimeError("No accounts configured in credentials.json")
+        logger.error(
+            "No accounts configured. credentials.json is empty or invalid "
+            "and the legacy .env did not yield any working account "
+            "(check KIRO_CREDS_FILE path, REFRESH_TOKEN, or KIRO_CLI_DB_FILE)."
+        )
+        raise RuntimeError("No accounts configured")
     
     # Determine start index from state.json
     start_index = app.state.account_manager._current_account_index
