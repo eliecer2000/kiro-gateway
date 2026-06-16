@@ -15,6 +15,7 @@ import gzip
 import io
 import os
 import stat
+import sys
 import tarfile
 import textwrap
 from pathlib import Path
@@ -62,10 +63,10 @@ def _build_tarball(archive_root_name: str, members: dict[str, str]) -> bytes:
 @pytest.fixture
 def fake_tarball() -> bytes:
     """
-    A tarball shaped like the GitHub auto-generated archive:
+    A tarball shaped like the published release asset.
         kiro-gateway-2.5.0/
             main.py
-            kiro_gateway/__init__.py
+            kiro/__init__.py
             requirements.txt
             LICENSE
             .git/HEAD
@@ -74,10 +75,41 @@ def fake_tarball() -> bytes:
             .github/workflows/ci.yml
     """
     members = {
-        f"kiro-gateway-2.5.0/main.py": "print('hello')\n",
-        f"kiro-gateway-2.5.0/kiro_gateway/__init__.py": "",
-        f"kiro-gateway-2.5.0/requirements.txt": "fastapi\nuvicorn\n",
+        f"kiro-gateway-2.5.0/main.py": textwrap.dedent(
+            """\
+            import json
+            import os
+            import sys
+            from pathlib import Path
+
+            marker = os.getenv("STARTUP_MARKER")
+            if marker:
+                Path(marker).write_text(json.dumps({
+                    "cwd": os.getcwd(),
+                    "script": str(Path(sys.argv[0]).resolve()),
+                    "env_file": os.getenv("KIRO_ENV_FILE"),
+                    "credentials": os.getenv("ACCOUNTS_CONFIG_FILE"),
+                }))
+            else:
+                print("hello")
+            """
+        ),
+        f"kiro-gateway-2.5.0/VERSION": "2.5.0\n",
+        f"kiro-gateway-2.5.0/kiro/__init__.py": "",
+        f"kiro-gateway-2.5.0/requirements.txt": "",
         f"kiro-gateway-2.5.0/LICENSE": "MIT License\n",
+        f"kiro-gateway-2.5.0/scripts/kiro-gateway": (
+            SCRIPTS_DIR / "kiro-gateway"
+        ).read_text(),
+        f"kiro-gateway-2.5.0/scripts/lib/install-common.sh": (
+            SCRIPTS_DIR / "lib" / "install-common.sh"
+        ).read_text(),
+        f"kiro-gateway-2.5.0/scripts/system/kiro-gateway.service": (
+            SCRIPTS_DIR / "system" / "kiro-gateway.service"
+        ).read_text(),
+        f"kiro-gateway-2.5.0/scripts/system/kiro-gateway.plist": (
+            SCRIPTS_DIR / "system" / "kiro-gateway.plist"
+        ).read_text(),
         f"kiro-gateway-2.5.0/.git/HEAD": "ref: refs/heads/main\n",
         f"kiro-gateway-2.5.0/tests/test_smoke.py": "def test_x(): pass\n",
         f"kiro-gateway-2.5.0/docs/README.md": "# docs\n",
@@ -142,7 +174,11 @@ def stub_curl(tmp_path: Path, fake_tarball: bytes, monkeypatch: pytest.MonkeyPat
         fi
 
         if [[ "$URL" == *"/SHA256SUMS"* ]] || [[ "$URL" == *"SHA256SUMS"* ]]; then
-          # Default: 404 / no sha256 available.
+          if [[ "${{STUB_SERVE_SHA256SUMS:-0}}" == "1" ]]; then
+            printf '%s  %s\n' "{tarball_sha}" "kiro-gateway-2.5.0.tar.gz"
+            exit 0
+          fi
+          # Default: 404 / no checksum asset available.
           exit 22
         fi
 
@@ -174,17 +210,18 @@ def stub_curl(tmp_path: Path, fake_tarball: bytes, monkeypatch: pytest.MonkeyPat
     # Also stub sha256sum so it can hash arbitrary files (delegate to the
     # real binary on PATH behind our stub bin).
     sha_path = bin_dir / "sha256sum"
-    real_sha256 = "/usr/bin/shasum"  # macOS built-in
-    if not Path(real_sha256).exists():
-        real_sha256 = "/usr/bin/sha256sum"  # Linux fallback
+    real_shasum = "/usr/bin/shasum"
+    real_sha256sum = "/usr/bin/sha256sum"
     sha_path.write_text(
         textwrap.dedent(
             f"""\
             #!/usr/bin/env bash
             # Stub sha256sum: delegate to the real binary if available,
             # otherwise emit a placeholder digest.
-            if [[ -x "{real_sha256}" ]]; then
-              "{real_sha256}" -a 256 "$@"
+            if [[ -x "{real_shasum}" ]]; then
+              "{real_shasum}" -a 256 "$@"
+            elif [[ -x "{real_sha256sum}" ]]; then
+              "{real_sha256sum}" "$@"
             else
               echo "{tarball_sha}  $1"
             fi
@@ -193,21 +230,14 @@ def stub_curl(tmp_path: Path, fake_tarball: bytes, monkeypatch: pytest.MonkeyPat
     )
     sha_path.chmod(0o755)
 
-    # Also stub python3 so the installer's `python3 -m venv` does not touch
-    # the host's python (which the test runner needs to stay clean).
+    # Route python3 to the test interpreter. This creates a real temporary
+    # venv; requirements.txt is empty, so no network access is possible.
     py_path = bin_dir / "python3"
     py_path.write_text(
         textwrap.dedent(
-            """\
+            f"""\
             #!/usr/bin/env bash
-            # Stub python3: just exits 0 (we don't need a real venv in unit
-            # tests; the installer only checks that `python3 -m venv` would
-            # work and the venv dir is created).
-            if [[ "$1" == "-V" ]] || [[ "$1" == "--version" ]]; then
-              echo "Python 3.12.0"
-              exit 0
-            fi
-            exit 0
+            exec "{sys.executable}" "$@"
             """
         )
     )

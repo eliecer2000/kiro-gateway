@@ -37,3 +37,11 @@ def test_readme_has_development_install_heading():
     assert "Development install" in text or "development install" in text, (
         "expected 'Development install' heading for the git clone fallback"
     )
+
+
+def test_readme_uses_real_configuration_path_and_canonical_repository():
+    """The quick start must not reference a nonexistent path subcommand."""
+    text = README.read_text()
+
+    assert "kiro-gateway path" not in text
+    assert "github.com/jwadow/kiro-gateway" in text

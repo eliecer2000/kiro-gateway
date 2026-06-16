@@ -246,11 +246,18 @@ class AccountManager:
         Folders are scanned for credential files.
         """
         creds_path = Path(self._credentials_file).expanduser()
-        
+
         if not creds_path.exists():
             logger.warning(f"Credentials file not found: {self._credentials_file}")
             return
-        
+
+        if creds_path.stat().st_size == 0:
+            logger.warning(
+                f"Credentials file is empty (0 bytes): {self._credentials_file}. "
+                f"Waiting for legacy .env migration or manual provisioning."
+            )
+            return
+
         try:
             with open(creds_path, 'r', encoding='utf-8') as f:
                 self._credentials_config = json.load(f)
@@ -358,11 +365,18 @@ class AccountManager:
         Creates empty state if file doesn't exist.
         """
         state_path = Path(self._state_file)
-        
+
         if not state_path.exists():
             logger.debug("State file not found, starting with empty state")
             return
-        
+
+        if state_path.stat().st_size == 0:
+            logger.debug(
+                f"State file is empty (0 bytes): {self._state_file}. "
+                f"Starting with empty state."
+            )
+            return
+
         try:
             with open(state_path, 'r', encoding='utf-8') as f:
                 state_data = json.load(f)

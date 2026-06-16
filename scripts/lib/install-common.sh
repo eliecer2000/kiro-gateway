@@ -5,6 +5,8 @@
 
 set -euo pipefail
 
+KIRO_REPO="${KIRO_REPO:-jwadow/kiro-gateway}"
+
 # -- Tunables (T-4.1) -----------------------------------------------------
 # Centralized so the static gates and the runtime use the same values.
 MIN_DISK_MB=200
@@ -105,6 +107,11 @@ preflight_tools() {
     local missing=()
     command -v curl >/dev/null 2>&1 || missing+=("curl")
     command -v tar  >/dev/null 2>&1 || missing+=("tar")
+    if [[ "${INSECURE:-0}" != "1" ]] \
+        && ! command -v sha256sum >/dev/null 2>&1 \
+        && ! command -v shasum >/dev/null 2>&1; then
+        missing+=("sha256sum or shasum")
+    fi
     if (( ${#missing[@]} > 0 )); then
         log_error "Required tools missing: ${missing[*]}. Install them and re-run."
         exit 1
@@ -187,9 +194,8 @@ lay_out_state() {
     mkdir -p "${INSTALL_DIR}/bin" "${INSTALL_DIR}/state" "${INSTALL_DIR}/logs"
     chmod 700 "${INSTALL_DIR}/state"
     chmod 750 "${INSTALL_DIR}/logs"
-    # Create credential and state files only if missing — preserve user data.
-    [[ -f "${INSTALL_DIR}/state/credentials.json" ]] || : > "${INSTALL_DIR}/state/credentials.json"
-    [[ -f "${INSTALL_DIR}/state/state.json" ]] || : > "${INSTALL_DIR}/state/state.json"
+    # credentials.json is created only by the application's .env migration.
+    # An empty placeholder would incorrectly suppress that one-time migration.
     # Optional .env from app/.env.example.
     if [[ ! -f "${INSTALL_DIR}/state/.env" ]]; then
         if [[ -f "${INSTALL_DIR}/app/.env.example" ]]; then
@@ -198,9 +204,11 @@ lay_out_state() {
             : > "${INSTALL_DIR}/state/.env"
         fi
     fi
-    chmod 600 "${INSTALL_DIR}/state/.env" \
-              "${INSTALL_DIR}/state/credentials.json" \
-              "${INSTALL_DIR}/state/state.json"
+    chmod 600 "${INSTALL_DIR}/state/.env"
+    [[ ! -f "${INSTALL_DIR}/state/credentials.json" ]] \
+        || chmod 600 "${INSTALL_DIR}/state/credentials.json"
+    [[ ! -f "${INSTALL_DIR}/state/state.json" ]] \
+        || chmod 600 "${INSTALL_DIR}/state/state.json"
 }
 
 write_install_env() {
@@ -213,13 +221,20 @@ EOF
 }
 
 install_symlink() {
-    cp "${INSTALL_DIR}/app/scripts/kiro-gateway" "${INSTALL_DIR}/bin/kiro-gateway"
-    chmod +x "${INSTALL_DIR}/bin/kiro-gateway"
+    local wrapper_tmp="${INSTALL_DIR}/bin/.kiro-gateway.new"
+    cp "${INSTALL_DIR}/app/scripts/kiro-gateway" "$wrapper_tmp" || return 1
+    chmod +x "$wrapper_tmp" || return 1
+    mv "$wrapper_tmp" "${INSTALL_DIR}/bin/kiro-gateway" || return 1
     # The wrapper sources ${INSTALL_DIR}/lib/install-common.sh at runtime.
-    mkdir -p "${INSTALL_DIR}/lib"
-    ln -sf "${INSTALL_DIR}/app/scripts/lib/install-common.sh" "${INSTALL_DIR}/lib/install-common.sh"
-    mkdir -p "${HOME}/.local/bin"
-    ln -sf "${INSTALL_DIR}/bin/kiro-gateway" "${HOME}/.local/bin/kiro-gateway"
+    mkdir -p "${INSTALL_DIR}/lib" || return 1
+    ln -sf "${INSTALL_DIR}/app/scripts/lib/install-common.sh" "${INSTALL_DIR}/lib/install-common.sh" || return 1
+    mkdir -p "${HOME}/.local/bin" || return 1
+    ln -sf "${INSTALL_DIR}/bin/kiro-gateway" "${HOME}/.local/bin/kiro-gateway" || return 1
+}
+
+refresh_control_plane() {
+    install_symlink || return 1
+    render_and_install_service || return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -246,7 +261,7 @@ check_preexisting() {
         r|R) return 0 ;;   # proceed with install
         a|A|"") exit 0 ;;  # abort cleanly
         u|U) return 2 ;;   # caller routes to update flow
-        c|C) return 3 ;;   # caller re-prompts for path
+        c|C) return 3 ;;   # caller asks the user to re-run with --install-dir
         *) exit 1 ;;
     esac
 }
@@ -266,7 +281,7 @@ resolve_version() {
         return
     fi
     # Default: hit GitHub API for the latest release.
-    local repo="${KIRO_REPO:-eliecer2000/kiro-gateway}"
+    local repo="${KIRO_REPO}"
     local body
     body="$(curl_https -fsSL \
         "https://api.github.com/repos/${repo}/releases/latest")" || {
@@ -284,8 +299,8 @@ resolve_version() {
 }
 
 tarball_url() {
-    local repo="${KIRO_REPO:-eliecer2000/kiro-gateway}"
-    printf 'https://github.com/%s/archive/refs/tags/v%s.tar.gz' "$repo" "$VERSION"
+    printf 'https://github.com/%s/releases/download/v%s/kiro-gateway-%s.tar.gz' \
+        "$KIRO_REPO" "$VERSION" "$VERSION"
 }
 
 fetch_tarball() {
@@ -301,23 +316,38 @@ verify_sha256() {
         log_warn "WARNING: skipping SHA256 verification (--insecure). Use only for development."
         return
     fi
-    local sums_url="https://github.com/${KIRO_REPO:-eliecer2000/kiro-gateway}/releases/download/v${VERSION}/SHA256SUMS"
+    local sums_url="https://github.com/${KIRO_REPO}/releases/download/v${VERSION}/SHA256SUMS"
     local sums
     if ! sums="$(curl_https -fsSL "$sums_url" 2>/dev/null)"; then
-        log_error "No SHA256SUMS available. Re-run with --insecure to skip verification."
+        log_error "No SHA256SUMS available. Install aborted. Use --insecure only for local development."
         exit 1
     fi
     local want got
-    want="$(printf '%s\n' "$sums" | awk -v v="v${VERSION}.tar.gz" '$2==v {print $1; exit}')"
+    local archive_name="kiro-gateway-${VERSION}.tar.gz"
+    want="$(printf '%s\n' "$sums" | awk -v v="$archive_name" '$2==v || $2=="*"v {print $1; exit}')"
     if [[ -z "$want" ]]; then
-        log_error "No SHA256SUMS available. Re-run with --insecure to skip verification."
+        log_error "No SHA256SUMS available. Install aborted. Use --insecure only for local development."
         exit 1
     fi
-    got="$(sha256sum "$TARBALL" | awk '{print $1}')"
+    got="$(sha256_file "$TARBALL")"
     if [[ "$want" != "$got" ]]; then
         log_error "SHA256 mismatch: expected $want, got $got."
         exit 1
     fi
+}
+
+sha256_file() {
+    local path="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$path" | awk '{print $1}'
+        return
+    fi
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$path" | awk '{print $1}'
+        return
+    fi
+    log_error "SHA256 verification requires sha256sum or shasum."
+    return 1
 }
 
 strip_excludes() {
@@ -327,16 +357,16 @@ strip_excludes() {
 
 extract_atomic() {
     local new_dir="${INSTALL_DIR}/app.new"
-    rm -rf "$new_dir"
-    mkdir -p "$new_dir"
-    tar -xzf "$TARBALL" -C "$new_dir" --strip-components=1
-    strip_excludes "$new_dir"
+    rm -rf "$new_dir" || return 1
+    mkdir -p "$new_dir" || return 1
+    tar -xzf "$TARBALL" -C "$new_dir" --strip-components=1 || return 1
+    strip_excludes "$new_dir" || return 1
     # Atomic swap: app -> app.prev (if exists), app.new -> app.
     if [[ -d "${INSTALL_DIR}/app" ]]; then
-        rm -rf "${INSTALL_DIR}/app.prev"
-        mv "${INSTALL_DIR}/app" "${INSTALL_DIR}/app.prev"
+        rm -rf "${INSTALL_DIR}/app.prev" || return 1
+        mv "${INSTALL_DIR}/app" "${INSTALL_DIR}/app.prev" || return 1
     fi
-    mv "$new_dir" "${INSTALL_DIR}/app"
+    mv "$new_dir" "${INSTALL_DIR}/app" || return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -346,7 +376,7 @@ extract_atomic() {
 compute_requirements_hash() {
     local req="${INSTALL_DIR}/app/requirements.txt"
     if [[ -f "$req" ]]; then
-        sha256sum "$req" | awk '{print $1}'
+        sha256_file "$req"
     else
         echo ""
     fi
@@ -361,10 +391,10 @@ venv_bootstrap_or_refresh() {
         && [[ -f "${INSTALL_DIR}/venv/bin/pip" ]]; then
         return
     fi
-    rm -rf "${INSTALL_DIR}/venv"
-    python3 -m venv "${INSTALL_DIR}/venv"
-    "${INSTALL_DIR}/venv/bin/pip" install --quiet -r "${INSTALL_DIR}/app/requirements.txt"
-    printf '%s\n' "$new_hash" > "$req_hash_file"
+    rm -rf "${INSTALL_DIR}/venv" || return 1
+    python3 -m venv "${INSTALL_DIR}/venv" || return 1
+    "${INSTALL_DIR}/venv/bin/pip" install --quiet -r "${INSTALL_DIR}/app/requirements.txt" || return 1
+    printf '%s\n' "$new_hash" > "$req_hash_file" || return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -374,7 +404,7 @@ venv_bootstrap_or_refresh() {
 # Render the platform service template into the platform-native location.
 # - macOS:   ~/Library/LaunchAgents/com.jwadow.kiro-gateway.plist
 # - Linux:   $HOME/.config/systemd/user/kiro-gateway.service
-# Calls `load_service` after writing the file.
+# Reloads the platform service definition after writing it.
 render_and_install_service() {
     if [[ "${UNAME_S:-$(uname -s)}" == "Darwin" ]]; then
         local dest="${HOME}/Library/LaunchAgents/com.jwadow.kiro-gateway.plist"
@@ -382,44 +412,93 @@ render_and_install_service() {
         local src="${INSTALL_DIR}/app/scripts/system/kiro-gateway.plist"
         sed -e "s|\${INSTALL_DIR}|${INSTALL_DIR}|g" \
             -e "s|\${HOME}|${HOME}|g" \
-            "$src" > "$dest"
-        chmod 644 "$dest"
+            "$src" > "$dest" || return 1
+        chmod 644 "$dest" || return 1
     else
         local dest="${HOME}/.config/systemd/user/kiro-gateway.service"
         mkdir -p "$(dirname "$dest")"
         local src="${INSTALL_DIR}/app/scripts/system/kiro-gateway.service"
         sed -e "s|\${INSTALL_DIR}|${INSTALL_DIR}|g" \
             -e "s|\${HOME}|${HOME}|g" \
-            "$src" > "$dest"
-        chmod 644 "$dest"
+            "$src" > "$dest" || return 1
+        chmod 644 "$dest" || return 1
     fi
-    load_service
+    reload_service_definition
 }
 
-# Load (register) the service WITHOUT enabling autostart.
-# - macOS: launchctl bootstrap gui/$(id -u) <plist>  (never use the legacy load subcommand with the persist flag)
-# - Linux: systemctl --user daemon-reload            (autostart is left for the user to opt into)
-load_service() {
+# Reload the service definition WITHOUT enabling autostart.
+reload_service_definition() {
     if [[ "${UNAME_S:-$(uname -s)}" == "Darwin" ]]; then
-        launchctl bootstrap "gui/$(id -u)" \
-            "${HOME}/Library/LaunchAgents/com.jwadow.kiro-gateway.plist" 2>/dev/null || {
-            log_warn "launchctl bootstrap skipped (run 'kiro-gateway start' to register the service)."
-        }
+        local domain="gui/$(id -u)"
+        local label="com.jwadow.kiro-gateway"
+        local plist="${HOME}/Library/LaunchAgents/${label}.plist"
+        launchctl bootout "${domain}/${label}" 2>/dev/null || true
+        if ! launchctl bootstrap "$domain" "$plist"; then
+            log_error "launchctl could not register ${plist}. Run this installer from a logged-in macOS user session."
+            return 1
+        fi
     else
-        systemctl --user daemon-reload || {
+        if ! systemctl --user daemon-reload; then
             log_error "systemctl --user daemon-reload failed."
-            exit 1
-        }
+            return 1
+        fi
     fi
 }
 
-# Unload the service. Used by uninstall.
-unload_service() {
+# Backward-compatible name used by existing installer tests.
+load_service() {
+    reload_service_definition
+}
+
+service_is_running() {
+    if [[ "${UNAME_S:-$(uname -s)}" == "Darwin" ]]; then
+        local pid
+        pid="$(launchctl list 2>/dev/null | awk '$3=="com.jwadow.kiro-gateway" {print $1; exit}')"
+        [[ -n "$pid" && "$pid" != "-" ]]
+    else
+        [[ "$(systemctl --user is-active kiro-gateway 2>/dev/null || true)" == "active" ]]
+    fi
+}
+
+start_service() {
+    if [[ "${UNAME_S:-$(uname -s)}" == "Darwin" ]]; then
+        local domain="gui/$(id -u)"
+        local label="com.jwadow.kiro-gateway"
+        local plist="${HOME}/Library/LaunchAgents/${label}.plist"
+        if ! launchctl print "${domain}/${label}" >/dev/null 2>&1; then
+            if ! launchctl bootstrap "$domain" "$plist"; then
+                log_error "launchctl could not register ${plist}. Verify that you are in a logged-in GUI session."
+                return 1
+            fi
+        fi
+        if ! launchctl kickstart -k "${domain}/${label}"; then
+            log_error "launchctl could not start ${label}. Inspect ${INSTALL_DIR}/logs/kiro-gateway.log."
+            return 1
+        fi
+    else
+        if ! systemctl --user start kiro-gateway; then
+            log_error "systemctl could not start kiro-gateway. Run: systemctl --user status kiro-gateway"
+            return 1
+        fi
+    fi
+}
+
+stop_service() {
     if [[ "${UNAME_S:-$(uname -s)}" == "Darwin" ]]; then
         launchctl bootout "gui/$(id -u)/com.jwadow.kiro-gateway" 2>/dev/null || true
     else
         systemctl --user stop kiro-gateway 2>/dev/null || true
     fi
+}
+
+restart_service() {
+    stop_service
+    start_service
+}
+
+# Unload the service. Used by uninstall.
+unload_service() {
+    stop_service
 }
 
 # Post-install verification: service is registered but not running.
@@ -467,5 +546,18 @@ post_install_summary() {
 # ---------------------------------------------------------------------------
 
 install_trap() {
-    trap 'rm -rf "${INSTALL_DIR:-/dev/null}/app.new" "${TARBALL:-/dev/null}" 2>/dev/null || true' EXIT
+    trap cleanup_install_artifacts EXIT
+}
+
+cleanup_install_artifacts() {
+    if [[ -n "${INSTALL_DIR:-}" ]]; then
+        rm -rf "${INSTALL_DIR}/app.new" 2>/dev/null || true
+        rm -f "${INSTALL_DIR}/bin/.kiro-gateway.new" 2>/dev/null || true
+    fi
+    if [[ -n "${TARBALL:-}" ]]; then
+        rm -f "$TARBALL" 2>/dev/null || true
+    fi
+    if [[ -n "${KIRO_INSTALL_TMPDIR:-}" ]]; then
+        rm -rf "$KIRO_INSTALL_TMPDIR" 2>/dev/null || true
+    fi
 }

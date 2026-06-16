@@ -3,17 +3,19 @@
 ## One-liner (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Jwadow/kiro-gateway/main/scripts/install.sh | bash -s -- install
+curl -fsSL https://raw.githubusercontent.com/jwadow/kiro-gateway/main/scripts/install.sh | bash -s -- install
 ```
 
 The installer:
 - Pre-flights OS, Python (>= 3.10), `curl`/`tar`, network reachability, and (on Linux) systemd --user.
-- Fetches the latest release tarball, verifies SHA256 (or fails closed unless you pass `--insecure`).
+- Fetches `kiro-gateway-X.Y.Z.tar.gz` and verifies it against the same release's `SHA256SUMS` file.
 - Lays out `${INSTALL_DIR}/` (macOS: `~/Library/Application Support/KiroGateway/`, Linux: `${XDG_DATA_HOME:-$HOME/.local/share}/kiro-gateway/`).
 - Bootstraps a `venv` and installs requirements (PEP 668 isolation).
-- Writes `state/install.env` (chmod 700 on `state/`, 600 on `.env` / `credentials.json` / `state.json`, 750 on `logs/`).
+- Writes `state/install.env` (chmod 700 on `state/`, 600 on `.env`, 750 on `logs/`). It does not create empty credential or runtime-state files.
 - Renders `scripts/system/kiro-gateway.{plist,service}` into the platform-native location and loads it (registered but NOT enabled).
 - Symlinks `~/.local/bin/kiro-gateway -> ${INSTALL_DIR}/bin/kiro-gateway`.
+
+At runtime the service uses `${INSTALL_DIR}/state` as its working directory and sets `KIRO_ENV_FILE=${INSTALL_DIR}/state/.env`. This makes installed configuration explicit while local development continues to load `./.env`.
 
 ## After install
 
@@ -41,6 +43,8 @@ kiro-gateway update --rollback       # restore the previous version
 ```
 
 The update flow snapshots `app/` to `app.prev/` before swapping. After a healthy `/health` probe (within 10s), `app.prev/` is removed. If the new version fails the health probe, the previous version is preserved for manual rollback.
+
+Update and rollback replace the lifecycle command, shared install library, and service definition from the selected release. A running service is stopped before the swap and restarted afterward; a stopped service remains stopped.
 
 ## Uninstall
 
@@ -82,7 +86,7 @@ On macOS, use `newsyslog` (built into `/etc/newsyslog.d/`) or your preferred rot
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | `preflight_python` fails | Python < 3.10 | Install via `pyenv install 3.12` or your package manager |
-| `No SHA256SUMS available` | v1 has no curated SHA256SUMS for the auto-generated archive | Re-run with `--insecure` (development only) or wait for v2 |
+| `No SHA256SUMS available` | The GitHub release is incomplete or was published incorrectly | Do not install it; report the affected release |
 | `Non-systemd Linux detected` | Alpine / Void / NixOS / WSL1 | Run via Docker (the installer's hint includes the one-liner) |
 | `kiro-gateway is not installed` | Wrapper invoked before `install.sh` ran, or after `uninstall` | Run the installer first |
 | Health probe times out | The gateway is not running on `:8000` | Run `kiro-gateway start` and `kiro-gateway logs` to diagnose |
@@ -90,7 +94,7 @@ On macOS, use `newsyslog` (built into `/etc/newsyslog.d/`) or your preferred rot
 ## Development install (fallback)
 
 ```bash
-git clone https://github.com/Jwadow/kiro-gateway
+git clone https://github.com/jwadow/kiro-gateway
 cd kiro-gateway
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt

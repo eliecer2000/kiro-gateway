@@ -22,7 +22,7 @@ Made with ❤️ by [@Jwadow](https://github.com/jwadow)
 ---
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Jwadow/kiro-gateway/main/scripts/install.sh | bash -s -- install
+curl -fsSL https://raw.githubusercontent.com/jwadow/kiro-gateway/main/scripts/install.sh | bash -s -- install
 ```
 
 ---
@@ -90,14 +90,17 @@ curl -fsSL https://raw.githubusercontent.com/Jwadow/kiro-gateway/main/scripts/in
 ### Installation (one-liner, recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Jwadow/kiro-gateway/main/scripts/install.sh | bash -s -- install
+curl -fsSL https://raw.githubusercontent.com/jwadow/kiro-gateway/main/scripts/install.sh | bash -s -- install
 ```
 
-The installer lays out a hidden install root (`~/Library/Application Support/KiroGateway/` on macOS, `~/.local/share/kiro-gateway/` on Linux), bootstraps a venv, verifies the SHA256, renders the platform service file, and registers it (without enabling autostart). After install:
+The installer downloads the versioned release archive and verifies it against the release's `SHA256SUMS` before extraction. It then creates a dedicated venv, state directory, lifecycle command, and platform service definition without enabling autostart.
 
 ```bash
-# Edit credentials
-${EDITOR:-vi} "$(kiro-gateway path)"/../state/.env
+# Edit credentials (macOS)
+${EDITOR:-vi} "$HOME/Library/Application Support/KiroGateway/state/.env"
+
+# Edit credentials (Linux)
+${EDITOR:-vi} "${XDG_DATA_HOME:-$HOME/.local/share}/kiro-gateway/state/.env"
 
 # Start the gateway
 kiro-gateway start
@@ -115,7 +118,7 @@ See [`docs/install.md`](docs/install.md) for the full guide (update, uninstall, 
 
 ```bash
 # Clone the repository (requires Git)
-git clone https://github.com/Jwadow/kiro-gateway.git
+git clone https://github.com/jwadow/kiro-gateway.git
 cd kiro-gateway
 
 # Or download ZIP: Code → Download ZIP → extract → open kiro-gateway folder
@@ -380,7 +383,7 @@ For complete configuration examples (including per-account region settings), see
 
 ```bash
 # 1. Clone and configure
-git clone https://github.com/Jwadow/kiro-gateway.git
+git clone https://github.com/jwadow/kiro-gateway.git
 cd kiro-gateway
 cp .env.example .env
 # Edit .env with your credentials

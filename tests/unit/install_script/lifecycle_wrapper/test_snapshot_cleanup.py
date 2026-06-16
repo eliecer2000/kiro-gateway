@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 WRAPPER = Path(__file__).resolve().parents[4] / "scripts" / "kiro-gateway"
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _build_tarball(root: str, members: dict) -> bytes:
@@ -51,15 +52,28 @@ def _setup_update_stubs(tmp_path, monkeypatch, new_version, sums_filename_suffix
         f"kiro-gateway-{new_version}",
         {
             f"kiro-gateway-{new_version}/main.py": f"print('{new_version}')\n",
-            f"kiro-gateway-{new_version}/requirements.txt": "fastapi\n",
+            f"kiro-gateway-{new_version}/VERSION": f"{new_version}\n",
+            f"kiro-gateway-{new_version}/requirements.txt": "fastapi\nuvicorn\n",
             f"kiro-gateway-{new_version}/LICENSE": "MIT\n",
+            f"kiro-gateway-{new_version}/scripts/kiro-gateway": (
+                REPO_ROOT / "scripts" / "kiro-gateway"
+            ).read_text(),
+            f"kiro-gateway-{new_version}/scripts/lib/install-common.sh": (
+                REPO_ROOT / "scripts" / "lib" / "install-common.sh"
+            ).read_text(),
+            f"kiro-gateway-{new_version}/scripts/system/kiro-gateway.service": (
+                REPO_ROOT / "scripts" / "system" / "kiro-gateway.service"
+            ).read_text(),
+            f"kiro-gateway-{new_version}/scripts/system/kiro-gateway.plist": (
+                REPO_ROOT / "scripts" / "system" / "kiro-gateway.plist"
+            ).read_text(),
         },
     )
     sha = hashlib.sha256(tarball).hexdigest()
 
     tarball_path = tmp_path / "kiro-gateway.tar.gz"
     tarball_path.write_bytes(tarball)
-    sums = f"{sha}  v{new_version}{sums_filename_suffix}.tar.gz\n"
+    sums = f"{sha}  kiro-gateway-{new_version}{sums_filename_suffix}.tar.gz\n"
     sums_path = tmp_path / "SHA256SUMS"
     sums_path.write_text(sums)
 
@@ -126,6 +140,10 @@ def _setup_update_stubs(tmp_path, monkeypatch, new_version, sums_filename_suffix
         #!/usr/bin/env bash
         if [[ "$1" == "--user" ]] && [[ "$2" == "show-environment" ]]; then
           echo "PATH=/usr/bin"
+          exit 0
+        fi
+        if [[ "$1" == "--user" ]] && [[ "$2" == "is-active" ]]; then
+          echo "active"
           exit 0
         fi
         exit 0

@@ -51,6 +51,10 @@ def test_wrapper_update_rollback_restores_prev(tmp_path, monkeypatch, installed_
     monkeypatch.setenv("HOME", str(installed_env.parent / "home"))
 
     # installed_env already has app/VERSION=2.5.0 and app.prev/VERSION=2.4.0
+    previous_control = "#!/usr/bin/env bash\necho restored-control\n"
+    (installed_env / "app.prev" / "scripts" / "kiro-gateway").write_text(
+        previous_control
+    )
     new_app_version = (installed_env / "app" / "VERSION").read_text()
     prev_app_version = (installed_env / "app.prev" / "VERSION").read_text()
     assert new_app_version != prev_app_version
@@ -70,6 +74,9 @@ def test_wrapper_update_rollback_restores_prev(tmp_path, monkeypatch, installed_
     assert not (installed_env / "app.prev").exists(), "app.prev/ should be removed after rollback"
     # app.new/ should not exist either.
     assert not (installed_env / "app.new").exists()
+    assert (installed_env / "bin" / "kiro-gateway").read_text() == previous_control
+    assert "VERSION=2.4.0" in (installed_env / "state" / "install.env").read_text()
     # The service was reloaded.
     log_content = log.read_text() if log.exists() else ""
     assert "bootstrap" in log_content, f"expected bootstrap in launchctl log; got: {log_content!r}"
+    assert "load -w" not in log_content

@@ -6,12 +6,13 @@
   <key>ProgramArguments</key>
   <array>
     <string>${INSTALL_DIR}/venv/bin/python</string>
-    <string>main.py</string>
+    <string>${INSTALL_DIR}/app/main.py</string>
   </array>
-  <key>WorkingDirectory</key> <string>${INSTALL_DIR}/app</string>
+  <key>WorkingDirectory</key> <string>${INSTALL_DIR}/state</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>KIRO_GATEWAY_HOME</key>     <string>${INSTALL_DIR}</string>
+    <key>KIRO_ENV_FILE</key>         <string>${INSTALL_DIR}/state/.env</string>
     <key>ACCOUNTS_CONFIG_FILE</key>  <string>${INSTALL_DIR}/state/credentials.json</string>
     <key>ACCOUNTS_STATE_FILE</key>   <string>${INSTALL_DIR}/state/state.json</string>
   </dict>

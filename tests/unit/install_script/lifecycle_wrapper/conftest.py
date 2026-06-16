@@ -17,6 +17,8 @@ The conftest provides:
 from __future__ import annotations
 
 import os
+import hashlib
+import shutil
 import socket
 import textwrap
 import threading
@@ -71,8 +73,21 @@ def installed_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (install_dir / "state" / "state.json").write_text("{}")
 
     # A fake app/ sentinel so update/rollback can assert file changes.
-    (install_dir / "app" / "VERSION").write_text("2.5.0\n")
-    (install_dir / "app.prev" / "VERSION").write_text("2.4.0\n")
+    for app_dir, version in (
+        (install_dir / "app", "2.5.0"),
+        (install_dir / "app.prev", "2.4.0"),
+    ):
+        (app_dir / "VERSION").write_text(f"{version}\n")
+        (app_dir / "requirements.txt").write_text("fastapi\nuvicorn\n")
+        shutil.copytree(SCRIPTS_DIR, app_dir / "scripts")
+
+    requirements = b"fastapi\nuvicorn\n"
+    (install_dir / "state" / "requirements.sha256").write_text(
+        hashlib.sha256(requirements).hexdigest() + "\n"
+    )
+    pip = install_dir / "venv" / "bin" / "pip"
+    pip.write_text("#!/usr/bin/env bash\nexit 0\n")
+    pip.chmod(0o755)
 
     # Place the wrapper script at ${INSTALL_DIR}/bin/kiro-gateway so
     # symlink resolution works. We COPY (not symlink) the real wrapper

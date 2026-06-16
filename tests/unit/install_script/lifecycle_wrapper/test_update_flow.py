@@ -32,6 +32,7 @@ from typing import Optional
 import pytest
 
 WRAPPER = Path(__file__).resolve().parents[4] / "scripts" / "kiro-gateway"
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _build_tarball(root: str, members: dict) -> bytes:
@@ -86,8 +87,21 @@ def test_wrapper_update_fetches_and_swaps(tmp_path, monkeypatch, installed_env):
         f"kiro-gateway-{new_version}",
         {
             f"kiro-gateway-{new_version}/main.py": "print('v2.6.0')\n",
+            f"kiro-gateway-{new_version}/VERSION": f"{new_version}\n",
             f"kiro-gateway-{new_version}/requirements.txt": "fastapi\nuvicorn\n",
             f"kiro-gateway-{new_version}/LICENSE": "MIT\n",
+            f"kiro-gateway-{new_version}/scripts/kiro-gateway": (
+                REPO_ROOT / "scripts" / "kiro-gateway"
+            ).read_text(),
+            f"kiro-gateway-{new_version}/scripts/lib/install-common.sh": (
+                REPO_ROOT / "scripts" / "lib" / "install-common.sh"
+            ).read_text(),
+            f"kiro-gateway-{new_version}/scripts/system/kiro-gateway.service": (
+                REPO_ROOT / "scripts" / "system" / "kiro-gateway.service"
+            ).read_text(),
+            f"kiro-gateway-{new_version}/scripts/system/kiro-gateway.plist": (
+                REPO_ROOT / "scripts" / "system" / "kiro-gateway.plist"
+            ).read_text(),
         },
     )
     sha = hashlib.sha256(tarball).hexdigest()
@@ -97,9 +111,7 @@ def test_wrapper_update_fetches_and_swaps(tmp_path, monkeypatch, installed_env):
     tarball_path.write_bytes(tarball)
 
     # Place a SHA256SUMS file that the wrapper will fetch. The wrapper
-    # looks up `v{VERSION}.tar.gz` (with the v prefix matching the
-    # GitHub release tarball name).
-    sums = f"{sha}  v{new_version}.tar.gz\n"
+    sums = f"{sha}  kiro-gateway-{new_version}.tar.gz\n"
     sums_path = tmp_path / "SHA256SUMS"
     sums_path.write_text(sums)
 
@@ -212,3 +224,9 @@ def test_wrapper_update_fetches_and_swaps(tmp_path, monkeypatch, installed_env):
 
     # app.prev/ was removed after the healthy start.
     assert not (installed_env / "app.prev").exists(), "app.prev/ should be removed after healthy update"
+    assert (installed_env / "bin" / "kiro-gateway").read_text() == (
+        installed_env / "app" / "scripts" / "kiro-gateway"
+    ).read_text()
+    service_calls = sc_log.read_text()
+    assert "daemon-reload" in service_calls
+    assert "start kiro-gateway" in service_calls

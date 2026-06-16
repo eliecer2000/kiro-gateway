@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 """
-T-1.15 — When SHA256SUMS is not reachable, the installer exits 1 with the
-exact documented message and performs no extraction.
+T-1.15 — When SHA256SUMS is not reachable, the installer exits 1 with an
+actionable fail-closed message and performs no extraction.
 """
 
 from __future__ import annotations
@@ -31,6 +31,6 @@ def test_no_shasums_fails_closed(tmp_path, stub_curl):
         capture_output=True, text=True, timeout=60,
     )
     assert result.returncode != 0
-    assert "No SHA256SUMS available. Re-run with --insecure to skip verification." in result.stderr
+    assert "No SHA256SUMS available. Install aborted. Use --insecure only for local development." in result.stderr
     # No extraction happened.
     assert not (install_dir / "app").exists()

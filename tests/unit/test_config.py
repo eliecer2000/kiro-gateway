@@ -1072,6 +1072,38 @@ class TestGetRawEnvValue:
         assert result is None
 
 
+class TestInstalledEnvFileResolution:
+    """Tests for the explicit installed-service .env loading contract."""
+
+    def test_explicit_env_file_has_priority(self, tmp_path: Path) -> None:
+        """KIRO_ENV_FILE must win over cwd and KIRO_GATEWAY_HOME discovery."""
+        import importlib
+        import kiro.config as config_module
+
+        explicit = tmp_path / "custom.env"
+        with patch.dict(
+            os.environ,
+            {
+                "KIRO_ENV_FILE": str(explicit),
+                "KIRO_GATEWAY_HOME": str(tmp_path / "gateway"),
+            },
+        ):
+            importlib.reload(config_module)
+            assert config_module.ENV_FILE == explicit
+        importlib.reload(config_module)
+
+    def test_gateway_home_falls_back_to_state_env(self, tmp_path: Path) -> None:
+        """Older installed services still resolve their state/.env file."""
+        import importlib
+        import kiro.config as config_module
+
+        with patch.dict(os.environ, {"KIRO_GATEWAY_HOME": str(tmp_path)}, clear=False):
+            os.environ.pop("KIRO_ENV_FILE", None)
+            importlib.reload(config_module)
+            assert config_module.ENV_FILE == tmp_path / "state" / ".env"
+        importlib.reload(config_module)
+
+
 class TestIntCoercedConfigValues:
     """Tests that verify ValueError is raised at module import when numeric env vars
     receive non-numeric strings.  This documents intentional crash-at-startup

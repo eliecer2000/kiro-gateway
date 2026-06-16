@@ -30,7 +30,7 @@ def test_plist_renders_with_correct_keys(tmp_path: Path) -> None:
     The rendered plist MUST declare:
     - RunAtLoad = false
     - KeepAlive = false
-    - ProgramArguments = [${INSTALL_DIR}/venv/bin/python, main.py]
+    - ProgramArguments = [${INSTALL_DIR}/venv/bin/python, ${INSTALL_DIR}/app/main.py]
     - WorkingDirectory = ${INSTALL_DIR}/state
     - EnvironmentVariables KIRO_GATEWAY_HOME, ACCOUNTS_CONFIG_FILE,
       ACCOUNTS_STATE_FILE
@@ -46,7 +46,7 @@ def test_plist_renders_with_correct_keys(tmp_path: Path) -> None:
     # ProgramArguments points at the venv python and runs main.py.
     assert "<key>ProgramArguments</key>" in rendered
     assert f"<string>{install_dir}/venv/bin/python</string>" in rendered
-    assert "<string>main.py</string>" in rendered
+    assert f"<string>{install_dir}/app/main.py</string>" in rendered
 
     # WorkingDirectory is the state dir (so credentials.json etc. resolve).
     assert "<key>WorkingDirectory</key>" in rendered
@@ -60,6 +60,8 @@ def test_plist_renders_with_correct_keys(tmp_path: Path) -> None:
     assert f"<string>{install_dir}/state/credentials.json</string>" in rendered
     assert "<key>ACCOUNTS_STATE_FILE</key>" in rendered
     assert f"<string>{install_dir}/state/state.json</string>" in rendered
+    assert "<key>KIRO_ENV_FILE</key>" in rendered
+    assert f"<string>{install_dir}/state/.env</string>" in rendered
 
 
 def test_plist_label_is_com_jwadot_kiro_gateway(tmp_path: Path) -> None:

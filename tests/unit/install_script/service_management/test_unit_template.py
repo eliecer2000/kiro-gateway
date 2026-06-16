@@ -27,7 +27,7 @@ def test_unit_template_exists() -> None:
 def test_unit_renders_with_correct_keys(tmp_path: Path) -> None:
     """
     The rendered unit MUST declare:
-    - [Service] ExecStart = ${INSTALL_DIR}/venv/bin/python main.py
+    - [Service] ExecStart uses absolute app/main.py
     - [Service] WorkingDirectory = ${INSTALL_DIR}/state
     - [Install] WantedBy = default.target
     - Environment=KIRO_GATEWAY_HOME, ACCOUNTS_CONFIG_FILE, ACCOUNTS_STATE_FILE
@@ -43,7 +43,7 @@ def test_unit_renders_with_correct_keys(tmp_path: Path) -> None:
     # [Service] section: ExecStart, WorkingDirectory, Environment.
     assert "[Service]" in rendered
     assert "ExecStart=" in rendered
-    assert f"{install_dir}/venv/bin/python main.py" in rendered
+    assert f"{install_dir}/venv/bin/python {install_dir}/app/main.py" in rendered
     assert "WorkingDirectory=" in rendered
     assert f"{install_dir}/state" in rendered
 
@@ -54,6 +54,7 @@ def test_unit_renders_with_correct_keys(tmp_path: Path) -> None:
     assert f"Environment=ACCOUNTS_CONFIG_FILE={install_dir}/state/credentials.json" in rendered
     assert "Environment=ACCOUNTS_STATE_FILE=" in rendered
     assert f"Environment=ACCOUNTS_STATE_FILE={install_dir}/state/state.json" in rendered
+    assert f"Environment=KIRO_ENV_FILE={install_dir}/state/.env" in rendered
 
     # [Install] WantedBy=default.target is present so a user who *manually*
     # runs `systemctl --user enable` gets the desired behavior, but the
