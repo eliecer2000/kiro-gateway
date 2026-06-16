@@ -250,9 +250,14 @@ check_preexisting() {
         printf 'Existing install detected at %s.\n(r)einstall / (u)pdate / (a)bort / (c)ustom path [a]: ' "$INSTALL_DIR" >&2
         IFS= read -r prompt_answer
     else
-        # Non-interactive: read one line from stdin if present, else default.
-        if [[ -s /dev/stdin ]]; then
-            IFS= read -r prompt_answer
+        # Non-interactive: read one line from stdin FD 0 if present, else default.
+        # Using FD 0 (not /dev/stdin) is more portable across macOS/Linux
+        # when stdin is a pipe from a parent process (e.g. pytest's
+        # subprocess.run with input=...).
+        if read -r -t 0 prompt_answer <&0 2>/dev/null; then
+            : # data was available and was captured
+        elif IFS= read -r prompt_answer <&0; then
+            : # blocking read succeeded (e.g. parent keeps the pipe open)
         else
             prompt_answer=""
         fi

@@ -282,11 +282,12 @@ cmd_uninstall() {
     fi
     # Remove symlink.
     rm -f "${HOME}/.local/bin/kiro-gateway" 2>/dev/null || true
-    # Prompt for full removal. Read from stdin if it has data (test
-    # scenarios pass `y\n` on stdin) or from the tty interactively.
+    # Prompt for full removal. Read from stdin if available (piped
+    # input from tests, or interactive tty). If stdin is a tty and
+    # the read returns empty, prompt the user interactively.
     local answer=""
-    if [[ -s /dev/stdin ]]; then
-        IFS= read -r answer
+    if read -r answer < /dev/stdin; then
+        : # Read whatever stdin offered (empty or not).
     elif [[ -t 0 ]]; then
         printf 'Remove install dir %s? [y/N]: ' "$INSTALL_DIR" >&2
         IFS= read -r answer

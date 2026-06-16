@@ -79,9 +79,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Initialize colors early so log_error/log_warn work for every subcommand
+# (action dispatch needs a friendly error path before install preflight).
+setup_color
+
 # Pre-flight (install subcommand only).
 if [[ "$SUBCOMMAND" == "install" ]]; then
-    setup_color
     preflight_euid
     preflight_os
     preflight_python
