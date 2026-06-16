@@ -264,7 +264,17 @@ check_preexisting() {
     fi
     case "${prompt_answer:-a}" in
         r|R) return 0 ;;   # proceed with install
-        a|A|"") exit 0 ;;  # abort cleanly
+        a|A|"")
+            # In non-interactive mode with an explicit --version pin, the
+            # user's intent is unambiguous: install that version. Proceed
+            # with reinstall instead of aborting silently. In interactive
+            # mode or without a pin, an empty answer still aborts.
+            if [[ -n "${VERSION_PIN:-}" && ! -t 0 ]]; then
+                log_info "Non-interactive install with --version ${VERSION_PIN}: proceeding with reinstall."
+                return 0
+            fi
+            exit 0
+            ;;
         u|U) return 2 ;;   # caller routes to update flow
         c|C) return 3 ;;   # caller asks the user to re-run with --install-dir
         *) exit 1 ;;
