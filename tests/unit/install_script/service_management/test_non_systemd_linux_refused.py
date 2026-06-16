@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import os
 import subprocess
-import textwrap
 from pathlib import Path
+from typing import Any, Dict
 
 import pytest
 
@@ -42,14 +42,30 @@ def _run_installer(env: dict, install_dir: Path, *args: str) -> subprocess.Compl
     )
 
 
+def _path_without_systemctl(original_path: str) -> str:
+    """
+    Return PATH with any directory containing a `systemctl` binary removed.
+    This is critical on CI runners (e.g. GitHub Actions ubuntu-latest) that
+    ship a real `/usr/bin/systemctl`. Without filtering, `command -v
+    systemctl` would find the real binary and bypass the installer's
+    non-systemd preflight.
+    """
+    cleaned: list[str] = []
+    for entry in original_path.split(":"):
+        if entry and not Path(entry, "systemctl").exists():
+            cleaned.append(entry)
+    return ":".join(cleaned)
+
+
 @pytest.fixture
-def empty_systemctl_dir(tmp_path: Path, stub_curl, monkeypatch: pytest.MonkeyPatch):
+def empty_systemctl_dir(tmp_path: Path, stub_curl, monkeypatch: pytest.MonkeyPatch) -> Dict[str, Any]:
     """
     Build a bin dir that has NO `systemctl` and NO `service` command, so
     `command -v systemctl` returns empty. The bin dir is put FIRST on
     PATH; the stub_curl bin dir comes second. Critically, this fixture
-    DELETES the systemctl stub from stub_curl's bin dir so the lookup
-    can't fall through to it.
+    DELETES the systemctl stub from stub_curl's bin dir AND filters the
+    trailing real PATH so a system `systemctl` (e.g. on CI Linux runners)
+    cannot satisfy the lookup.
     """
     bin_dir = tmp_path / "empty-bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -65,7 +81,8 @@ def empty_systemctl_dir(tmp_path: Path, stub_curl, monkeypatch: pytest.MonkeyPat
     if systemctl_in_curl.exists():
         systemctl_in_curl.unlink()
 
-    new_path = f"{bin_dir}:{curl_bin}:{os.environ.get('PATH', '')}"
+    real_path = _path_without_systemctl(os.environ.get("PATH", ""))
+    new_path = f"{bin_dir}:{curl_bin}:{real_path}"
     monkeypatch.setenv("PATH", new_path)
     monkeypatch.setenv("STUB_EMPTY_SYSTEMCTL_BIN", str(bin_dir))
     return {"bin_dir": bin_dir}
@@ -83,10 +100,11 @@ def test_non_systemd_linux_refused(
     home = tmp_path
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("UNAME_S", "Linux")
+    real_path = _path_without_systemctl(os.environ.get("PATH", ""))
     env = {
         "HOME": str(home),
         "UNAME_S": "Linux",
-        "PATH": f"{empty_systemctl_dir['bin_dir']}:{stub_curl['bin_dir']}:{os.environ.get('PATH', '')}",
+        "PATH": f"{empty_systemctl_dir['bin_dir']}:{stub_curl['bin_dir']}:{real_path}",
         "STUB_TARBALL_PATH": str(stub_curl["tarball_path"]),
     }
     result = _run_installer(env, install_dir, "--version", "2.5.0", "--insecure")

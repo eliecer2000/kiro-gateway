@@ -17,8 +17,6 @@ import os
 import textwrap
 from pathlib import Path
 
-import pytest
-
 WRAPPER = Path(__file__).resolve().parents[4] / "scripts" / "kiro-gateway"
 
 
@@ -39,13 +37,20 @@ def test_wrapper_start_dispatches_launchctl_on_macos(tmp_path, monkeypatch, inst
     THEN `launchctl bootstrap gui/<uid> <plist>` is invoked.
     """
     log = tmp_path / "launchctl.log"
+    # The wrapper checks `launchctl print` first; if it returns 0 it
+    # assumes the service is already registered and skips bootstrap.
+    # Simulate a fresh install (print fails) so bootstrap runs, while
+    # the subsequent `kickstart` succeeds.
     _write_stub(
         tmp_path,
         "launchctl",
         f"""\
         #!/usr/bin/env bash
         echo "$@" >> "{log}"
-        exit 0
+        case "$1" in
+            print) exit 1 ;;
+            *) exit 0 ;;
+        esac
         """,
     )
     # Ensure the wrapper picks up the stub on PATH.

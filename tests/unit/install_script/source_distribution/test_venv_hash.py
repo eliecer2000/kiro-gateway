@@ -10,8 +10,6 @@ import os
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from tests.unit.install_script.conftest import REPO_ROOT
 
 
@@ -32,11 +30,16 @@ def test_requirements_unchanged_preserves_venv(tmp_path, stub_curl):
     state_dir = install_dir / "state"
     state_dir.mkdir(parents=True)
     (state_dir / "install.env").write_text("INSTALL_DIR=x\nVERSION=1.0.0\n")
-    # Pre-existing venv with a sentinel file.
+    # Pre-existing venv with a sentinel file and a fake pip binary.
+    # The installer skips venv bootstrap when venv/bin/pip is present
+    # and the requirements hash matches the previous run.
     venv_bin = install_dir / "venv" / "bin"
     venv_bin.mkdir(parents=True)
     sentinel = venv_bin / "sentinel"
     sentinel.write_text("do-not-touch")
+    pip = venv_bin / "pip"
+    pip.write_text("#!/usr/bin/env bash\nexit 0\n")
+    pip.chmod(0o755)
 
     env = {
         "HOME": str(tmp_path),
