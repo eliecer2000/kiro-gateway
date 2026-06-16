@@ -8,6 +8,8 @@ honors XDG_DATA_HOME.
 from __future__ import annotations
 
 import os
+import json
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -50,6 +52,7 @@ def test_install_fresh_linux_default_layout(tmp_path, stub_curl):
 
     for sub in ("app", "venv", "bin", "state", "logs"):
         assert (install_dir / sub).is_dir(), f"missing: {install_dir / sub}"
+    assert not (install_dir / "state" / "credentials.json").exists()
 
 
 def test_install_fresh_linux_xdg_data_home_override(tmp_path, stub_curl, monkeypatch):
@@ -75,3 +78,50 @@ def test_install_fresh_linux_xdg_data_home_override(tmp_path, stub_curl, monkeyp
 
     for sub in ("app", "venv", "bin", "state", "logs"):
         assert (install_dir / sub).is_dir(), f"missing: {install_dir / sub}"
+    assert not (install_dir / "state" / "credentials.json").exists()
+
+
+def test_rendered_linux_service_starts_release_entrypoint_from_state(tmp_path, stub_curl):
+    """Execute the rendered service contract with a real temporary venv."""
+    install_dir = tmp_path / "install"
+    home = tmp_path / "home"
+    env = {
+        "HOME": str(home),
+        "UNAME_S": "Linux",
+        "PATH": f"{stub_curl['bin_dir']}:{os.environ.get('PATH', '')}",
+        "STUB_TARBALL_PATH": str(stub_curl["tarball_path"]),
+    }
+    result = _run(env, install_dir, "--version", "2.5.0", "--insecure")
+    assert result.returncode == 0, result.stderr
+
+    unit = home / ".config" / "systemd" / "user" / "kiro-gateway.service"
+    values = {}
+    exec_start = ""
+    working_directory = ""
+    for line in unit.read_text().splitlines():
+        if line.startswith("Environment="):
+            key, value = line.removeprefix("Environment=").split("=", 1)
+            values[key] = value
+        elif line.startswith("ExecStart="):
+            exec_start = line.removeprefix("ExecStart=")
+        elif line.startswith("WorkingDirectory="):
+            working_directory = line.removeprefix("WorkingDirectory=")
+
+    marker = tmp_path / "startup.json"
+    runtime_env = os.environ.copy()
+    runtime_env.update(values)
+    runtime_env["STARTUP_MARKER"] = str(marker)
+    started = subprocess.run(
+        shlex.split(exec_start),
+        cwd=working_directory,
+        env=runtime_env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert started.returncode == 0, started.stderr
+    payload = json.loads(marker.read_text())
+    assert payload["cwd"] == str(install_dir / "state")
+    assert payload["script"] == str((install_dir / "app" / "main.py").resolve())
+    assert payload["env_file"] == str(install_dir / "state" / ".env")
+    assert payload["credentials"] == str(install_dir / "state" / "credentials.json")

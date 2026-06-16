@@ -38,7 +38,7 @@ def test_default_version_resolves_to_latest(tmp_path, stub_curl):
     result = _run(env, install_dir, "--insecure")
     assert result.returncode == 0
     log = stub_curl["calls_log"].read_text()
-    assert "v2.5.0.tar.gz" in log
+    assert "releases/download/v2.5.0/kiro-gateway-2.5.0.tar.gz" in log
 
 
 def test_version_flag_pins_tag(tmp_path, stub_curl):
@@ -52,5 +52,5 @@ def test_version_flag_pins_tag(tmp_path, stub_curl):
     result = _run(env, install_dir, "--version", "2.4.0", "--insecure")
     assert result.returncode == 0
     log = stub_curl["calls_log"].read_text()
-    assert "v2.4.0.tar.gz" in log
-    assert "v2.5.0.tar.gz" not in log
+    assert "releases/download/v2.4.0/kiro-gateway-2.4.0.tar.gz" in log
+    assert "kiro-gateway-2.5.0.tar.gz" not in log

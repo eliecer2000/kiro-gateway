@@ -45,10 +45,10 @@ def test_requirements_unchanged_preserves_venv(tmp_path, stub_curl):
         "STUB_TARBALL_PATH": str(stub_curl["tarball_path"]),
     }
     # Pre-populate the requirements hash to match the stub tarball's
-    # requirements.txt (the stub serves the fake_tarball which has
-    # "fastapi\nuvicorn\n").
+    # requirements.txt (the release fixture intentionally has no external
+    # dependencies, keeping the installer test network-isolated).
     import hashlib
-    req = b"fastapi\nuvicorn\n"
+    req = b""
     (state_dir / "requirements.sha256").write_text(hashlib.sha256(req).hexdigest() + "\n")
 
     result = _run(env, install_dir, "--version", "2.5.0", "--insecure", stdin="r\n")

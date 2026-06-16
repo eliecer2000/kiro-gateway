@@ -10,7 +10,7 @@ set -euo pipefail
 # same GitHub origin into a temp dir and source it from there. When run
 # from a local checkout (`./scripts/install.sh`), BASH_SOURCE[0] points
 # to a real file on disk and we source the sibling — no network needed.
-KIRO_REPO="${KIRO_REPO:-eliecer2000/kiro-gateway}"
+KIRO_REPO="${KIRO_REPO:-jwadow/kiro-gateway}"
 KIRO_BRANCH="${KIRO_BRANCH:-main}"
 INSTALL_COMMON_URL="https://raw.githubusercontent.com/${KIRO_REPO}/${KIRO_BRANCH}/scripts/lib/install-common.sh"
 
@@ -27,16 +27,15 @@ else
         trap 'rm -rf "${KIRO_INSTALL_TMPDIR:-}"' EXIT
     fi
     INSTALL_COMMON_SH="${KIRO_INSTALL_TMPDIR}/install-common.sh"
+    CURL_ERROR_FILE="${KIRO_INSTALL_TMPDIR}/curl-error.log"
     if ! curl -fsSL --proto '=https' --tlsv1.2 \
-            "$INSTALL_COMMON_URL" -o "$INSTALL_COMMON_SH" 2>/tmp/kiro-curl-err; then
+            "$INSTALL_COMMON_URL" -o "$INSTALL_COMMON_SH" 2>"$CURL_ERROR_FILE"; then
         echo "error: failed to fetch install library from ${INSTALL_COMMON_URL}" >&2
-        echo "       curl said: $(cat /tmp/kiro-curl-err 2>/dev/null || echo 'unknown')" >&2
+        echo "       curl said: $(cat "$CURL_ERROR_FILE" 2>/dev/null || echo 'unknown')" >&2
         echo "       set KIRO_REPO and KIRO_BRANCH to a reachable fork, or" >&2
         echo "       download scripts/lib/install-common.sh manually" >&2
-        rm -f /tmp/kiro-curl-err
         exit 1
     fi
-    rm -f /tmp/kiro-curl-err
     # shellcheck source=scripts/lib/install-common.sh
     source "$INSTALL_COMMON_SH"
 fi
@@ -91,15 +90,46 @@ if [[ "$SUBCOMMAND" == "install" ]]; then
 fi
 
 detect_install_dir
+
+dispatch_lifecycle_action() {
+    local action="$1"
+    local control="${INSTALL_DIR}/bin/kiro-gateway"
+    if [[ ! -x "$control" ]]; then
+        log_error "Cannot run '${action}': installed control command not found at ${control}."
+        log_error "Repair the install with: scripts/install.sh --install-dir \"${INSTALL_DIR}\" install"
+        exit 1
+    fi
+    case "$action" in
+        update) exec "$control" update ;;
+        uninstall) exec "$control" uninstall ;;
+        --rollback) exec "$control" update --rollback ;;
+        *) log_error "Unsupported lifecycle action: ${action}"; exit 1 ;;
+    esac
+}
+
+if [[ "$SUBCOMMAND" != "install" ]]; then
+    dispatch_lifecycle_action "$SUBCOMMAND"
+fi
+
 preflight_disk "$(dirname "$INSTALL_DIR")"
 
 if [[ "$SUBCOMMAND" == "install" ]]; then
+    # Check for pre-existing install; default to abort on empty input.
+    if check_preexisting; then
+        :
+    else
+        preexisting_action=$?
+        case "$preexisting_action" in
+            2) dispatch_lifecycle_action update ;;
+            3)
+                log_error "Choose a custom path with --install-dir PATH and run the installer again."
+                exit 1
+                ;;
+            *) exit "$preexisting_action" ;;
+        esac
+    fi
     preflight_network
     resolve_version
-    # Check for pre-existing install; default to abort on empty input.
-    if ! check_preexisting; then
-        exit 0
-    fi
     fetch_tarball
     verify_sha256
     extract_atomic

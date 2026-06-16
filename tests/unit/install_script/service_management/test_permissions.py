@@ -70,26 +70,22 @@ def test_state_dir_chmod_700(
     )
 
 
-def test_credentials_json_chmod_600(
+def test_credentials_json_is_not_created_empty(
     tmp_path: Path, stub_curl, stub_launchctl, monkeypatch
 ) -> None:
-    """T-2.8 — ${INSTALL_DIR}/state/credentials.json MUST be chmod 600."""
+    """Fresh installs leave credentials creation to the .env migration."""
     install_dir = _do_fresh_install(tmp_path, stub_curl, stub_launchctl, monkeypatch)
     creds = install_dir / "state" / "credentials.json"
-    assert creds.exists(), f"missing credentials.json: {creds}"
-    assert stat_mode(creds) == "600", (
-        f"credentials.json mode is {stat_mode(creds)}, expected 600"
-    )
+    assert not creds.exists()
 
 
-def test_state_json_chmod_600(
+def test_state_json_is_created_by_runtime(
     tmp_path: Path, stub_curl, stub_launchctl, monkeypatch
 ) -> None:
-    """T-2.8 (sister) — state.json MUST also be chmod 600."""
+    """The runtime creates state.json atomically after startup."""
     install_dir = _do_fresh_install(tmp_path, stub_curl, stub_launchctl, monkeypatch)
     s = install_dir / "state" / "state.json"
-    assert s.exists()
-    assert stat_mode(s) == "600", f"state.json mode is {stat_mode(s)}, expected 600"
+    assert not s.exists()
 
 
 def test_env_chmod_600(

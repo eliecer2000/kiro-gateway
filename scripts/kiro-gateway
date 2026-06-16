@@ -45,7 +45,7 @@ INSTALL_ENV="${INSTALL_DIR}/state/install.env"
 guard_installed() {
     if [[ ! -f "$INSTALL_ENV" ]]; then
         printf 'kiro-gateway is not installed. Run the installer first:\n' >&2
-        printf '  curl -fsSL https://raw.githubusercontent.com/Jwadow/kiro-gateway/main/scripts/install.sh | bash -s -- install\n' >&2
+        printf '  curl -fsSL https://raw.githubusercontent.com/jwadow/kiro-gateway/main/scripts/install.sh | bash -s -- install\n' >&2
         exit 1
     fi
 }
@@ -80,54 +80,12 @@ is_macos() {
 # -- Subcommands ----------------------------------------------------------
 cmd_start() {
     guard_installed
-    if is_macos; then
-        # Register if not yet registered.
-        launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" 2>/dev/null || true
-        # Kick the service to actually start (RunAtLoad=false in plist).
-        if launchctl kickstart "gui/$(id -u)/com.jwadow.kiro-gateway" 2>/dev/null; then
-            return 0
-        fi
-        # launchctl unavailable (no GUI session) — launch directly.
-        _start_direct
-    else
-        systemctl --user start kiro-gateway >&2
-    fi
-}
-
-_start_direct() {
-    local plist
-    plist="$(plumbed_plist)"
-    local python="${INSTALL_DIR}/venv/bin/python"
-    local app="${INSTALL_DIR}/app"
-    local state="${INSTALL_DIR}/state"
-    local log="${INSTALL_DIR}/logs/kiro-gateway.log"
-    mkdir -p "${INSTALL_DIR}/logs"
-    # Read env vars from the rendered plist (simple grep, no xml parser needed).
-    local env_home env_accounts env_state
-    env_home="$(grep -A1 'KIRO_GATEWAY_HOME' "$plist" 2>/dev/null | grep '<string>' | sed 's/.*<string>\(.*\)<\/string>.*/\1/' | head -1)"
-    env_accounts="$(grep -A1 'ACCOUNTS_CONFIG_FILE' "$plist" 2>/dev/null | grep '<string>' | sed 's/.*<string>\(.*\)<\/string>.*/\1/' | head -1)"
-    env_state_file="$(grep -A1 'ACCOUNTS_STATE_FILE' "$plist" 2>/dev/null | grep '<string>' | sed 's/.*<string>\(.*\)<\/string>.*/\1/' | head -1)"
-    KIRO_GATEWAY_HOME="${env_home:-$INSTALL_DIR}" \
-    ACCOUNTS_CONFIG_FILE="${env_accounts:-$state/credentials.json}" \
-    ACCOUNTS_STATE_FILE="${env_state_file:-$state/state.json}" \
-        nohup "$python" "${app}/main.py" >> "$log" 2>&1 &
-    local pid=$!
-    printf '%s\n' "$pid" > "${INSTALL_DIR}/state/kiro-gateway.pid"
-    printf 'Started kiro-gateway (pid %s). Logs: %s\n' "$pid" "$log" >&2
+    start_service
 }
 
 cmd_stop() {
     guard_installed
-    if is_macos; then
-        launchctl bootout "gui/$(id -u)/com.jwadow.kiro-gateway" 2>/dev/null || true
-        local pidfile="${INSTALL_DIR}/state/kiro-gateway.pid"
-        if [[ -f "$pidfile" ]]; then
-            kill "$(cat "$pidfile")" 2>/dev/null || true
-            rm -f "$pidfile"
-        fi
-    else
-        systemctl --user stop kiro-gateway 2>/dev/null || true
-    fi
+    stop_service
 }
 
 cmd_restart() {
@@ -198,6 +156,50 @@ cmd_logs() {
     exec tail -f "${INSTALL_DIR}/logs/kiro-gateway.log"
 }
 
+activate_downloaded_update() {
+    extract_atomic || return 1
+    lay_out_state || return 1
+    venv_bootstrap_or_refresh || return 1
+    write_install_env || return 1
+    refresh_control_plane || return 1
+}
+
+restore_previous_after_failed_activation() {
+    local was_running="$1"
+    local active_version=""
+    active_version="$(cat "${INSTALL_DIR}/app/VERSION" 2>/dev/null || true)"
+    if [[ -d "${INSTALL_DIR}/app" && "$active_version" != "$VERSION" ]]; then
+        if (( was_running == 1 )); then
+            start_service || return 1
+        fi
+        log_error "Update activation failed before the application swap; the installed version was left unchanged."
+        return 0
+    fi
+    if [[ ! -d "${INSTALL_DIR}/app.prev" ]]; then
+        log_error "Update activation failed and no previous application snapshot is available."
+        return 1
+    fi
+
+    rm -rf "${INSTALL_DIR}/app.failed"
+    [[ ! -d "${INSTALL_DIR}/app" ]] \
+        || mv "${INSTALL_DIR}/app" "${INSTALL_DIR}/app.failed"
+    mv "${INSTALL_DIR}/app.prev" "${INSTALL_DIR}/app"
+    VERSION="$(cat "${INSTALL_DIR}/app/VERSION" 2>/dev/null || true)"
+    if [[ -z "$VERSION" ]]; then
+        log_error "Previous application snapshot has no VERSION file."
+        return 1
+    fi
+    venv_bootstrap_or_refresh || return 1
+    write_install_env || return 1
+    refresh_control_plane || return 1
+    if (( was_running == 1 )); then
+        start_service || return 1
+    fi
+    rm -rf "${INSTALL_DIR}/app.failed"
+    log_error "Update activation failed; the previous version was restored."
+    return 0
+}
+
 cmd_update() {
     guard_installed
     if [[ "${1:-}" == "--rollback" ]]; then
@@ -205,43 +207,49 @@ cmd_update() {
             printf 'No previous version to roll back to.\n' >&2
             exit 1
         fi
+        local was_running=0
+        service_is_running && was_running=1
+        stop_service
         rm -rf "${INSTALL_DIR}/app.new"
         mv "${INSTALL_DIR}/app" "${INSTALL_DIR}/app.new"
         mv "${INSTALL_DIR}/app.prev" "${INSTALL_DIR}/app"
         rm -rf "${INSTALL_DIR}/app.new"
-        if is_macos; then
-            launchctl bootout "gui/$(id -u)/com.jwadow.kiro-gateway" 2>/dev/null || true
-            launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" 2>/dev/null || \
-                launchctl load -w "$(plumbed_plist)" >&2
-        else
-            systemctl --user daemon-reload >&2
+        VERSION="$(cat "${INSTALL_DIR}/app/VERSION" 2>/dev/null || true)"
+        if [[ -z "$VERSION" ]]; then
+            log_error "Rollback package has no VERSION file. The application was restored, but install metadata was not updated."
+            exit 1
+        fi
+        lay_out_state
+        venv_bootstrap_or_refresh
+        write_install_env
+        refresh_control_plane
+        if (( was_running == 1 )); then
+            start_service
         fi
         printf 'Rollback complete.\n' >&2
         exit 0
     fi
-    # Snapshot current app.
-    if [[ -d "${INSTALL_DIR}/app" ]]; then
-        rm -rf "${INSTALL_DIR}/app.prev"
-        mv "${INSTALL_DIR}/app" "${INSTALL_DIR}/app.prev"
-    fi
-    # Fetch and extract.
+    local was_running=0
+    service_is_running && was_running=1
+    # Download and verify before interrupting the running service.
     VERSION=""
     resolve_version
     fetch_tarball
     verify_sha256
-    extract_atomic
-    # venv refresh (no-op if requirements hash unchanged).
-    venv_bootstrap_or_refresh
-    # Persist the new version in install.env so `kiro-gateway version`
-    # reflects reality.
-    write_install_env
-    # Reload service.
-    if is_macos; then
-        launchctl bootout "gui/$(id -u)/com.jwadow.kiro-gateway" 2>/dev/null || true
-        launchctl bootstrap "gui/$(id -u)" "$(plumbed_plist)" 2>/dev/null || \
-            launchctl load -w "$(plumbed_plist)" >&2
-    else
-        systemctl --user daemon-reload >&2
+    stop_service
+    if ! activate_downloaded_update; then
+        restore_previous_after_failed_activation "$was_running" || true
+        exit 1
+    fi
+    if (( was_running == 0 )); then
+        printf 'Update installed. Service remains stopped; app.prev/ is available for rollback.\n' >&2
+        exit 0
+    fi
+    if ! start_service; then
+        printf 'Update installed but the service could not restart.\n' >&2
+        printf 'The previous version is preserved at app.prev/.\n' >&2
+        printf 'Run: kiro-gateway update --rollback\n' >&2
+        exit 1
     fi
     # Health-poll up to 10s. Healthy => remove snapshot. Unhealthy =>
     # preserve snapshot and print a hint.
